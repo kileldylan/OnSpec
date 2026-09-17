@@ -23,8 +23,8 @@ const Navigation = () => {
   
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
-  { icon: GitPullRequest, label: 'Pull Requests', path: '/pull-requests' },
   { icon: CheckCircle, label: 'Verifications', path: '/verifications' },
+  { icon: GitPullRequest, label: 'Pull Requests', path: '/pull-requests' },
   { icon: FileCode, label: 'Evidence', path: '/evidence' },
   { icon: FileText, label: 'Requirements', path: '/requirements' },
 ];
