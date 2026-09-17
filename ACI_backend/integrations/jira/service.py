@@ -1,5 +1,10 @@
+import logging
+
 from ACI_backend.ACIApp.models import Requirement, RequirementPullRequest
+from ACI_backend.integrations.jira.client import JiraAPIError
 from ACI_backend.integrations.jira.utils import extract_jira_issue_keys
+
+logger = logging.getLogger(__name__)
 
 
 def ingest_jira_requirement(
@@ -67,7 +72,16 @@ def ingest_jira_requirements_for_pull_request(
     requirements = []
 
     for issue_key in issue_keys:
-        jira_issue = jira_client.get_issue(issue_key)
+        try:
+            jira_issue = jira_client.get_issue(issue_key)
+        except JiraAPIError:
+            logger.warning(
+                "Skipping Jira requirement %s for pull request %s because the issue could not be fetched.",
+                issue_key,
+                pull_request,
+                exc_info=True,
+            )
+            continue
 
         requirement = ingest_jira_requirement(
             pull_request=pull_request,

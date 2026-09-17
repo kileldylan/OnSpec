@@ -182,6 +182,8 @@ class EvidenceSerializer(serializers.ModelSerializer):
 
 
 class VerificationSerializer(serializers.ModelSerializer):
+    requirement = RequirementSerializer(read_only=True)
+    pull_request = PullRequestSerializer(read_only=True)
     evidence_ids = serializers.SerializerMethodField()
     evidence = serializers.SerializerMethodField()
     decision_history = serializers.SerializerMethodField()

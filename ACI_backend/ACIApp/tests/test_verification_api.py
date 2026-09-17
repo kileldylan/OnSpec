@@ -113,7 +113,8 @@ def test_repository_can_start_verification_for_selected_pr_and_requirement():
     )
 
     assert response.status_code == 201
-    assert response.json()["verification"]["pull_request"] == pull_request.id
+    assert response.json()["verification"]["pull_request"]["id"] == pull_request.id
+    assert response.json()["verification"]["requirement"]["id"] == requirement.id
     assert response.json()["run"]["status"] == "queued"
     assert response.json()["run"]["triggering_changed_file"] == changed_file.id
     assert RequirementPullRequest.objects.filter(
@@ -278,3 +279,53 @@ def test_verification_api_exposes_stale_proof_and_queued_work():
     assert decision_response.json()[0]["verification_status"] == "stale"
     assert decision_response.json()[0]["evidence_ids"] == [evidence.id]
     assert decision_response.json()[0]["decision_history"][0]["id"] == decision.id
+
+
+@pytest.mark.django_db
+def test_verification_detail_includes_requirement_and_pull_request_data():
+    user = get_user_model().objects.create_user(
+        username="verification-detail-reader",
+        password="test-password",
+    )
+    repository = Repository.objects.create(
+        github_id=765432,
+        owner="aci",
+        name="detail-repo",
+        full_name="aci/detail-repo",
+    )
+    repository.members.add(user)
+    pull_request = PullRequest.objects.create(
+        repository=repository,
+        github_id=654321,
+        number=9,
+        title="Add health check endpoint",
+        author="kilel",
+        source_branch="feature/health",
+        target_branch="main",
+        base_sha="b" * 40,
+        head_sha="a" * 40,
+        state="open",
+        is_merged=False,
+        created_at="2026-08-18T10:00:00Z",
+        updated_at="2026-08-18T10:00:00Z",
+    )
+    requirement = Requirement.objects.create(
+        repository=repository,
+        external_id="KIL-3",
+        source="jira",
+        title="KIL-3 Add health check endpoint",
+    )
+    verification = Verification.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+        status="pending",
+    )
+
+    client = APIClient()
+    client.force_authenticate(user=user)
+    response = client.get(reverse("verification-detail", kwargs={"pk": verification.pk}))
+
+    assert response.status_code == 200
+    assert response.json()["requirement"]["external_id"] == "KIL-3"
+    assert response.json()["requirement"]["title"] == "KIL-3 Add health check endpoint"
+    assert response.json()["pull_request"]["number"] == 9

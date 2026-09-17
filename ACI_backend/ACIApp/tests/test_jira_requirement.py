@@ -12,7 +12,7 @@ from ACI_backend.integrations.jira.service import (
     ingest_jira_requirement,
     ingest_jira_requirements_for_pull_request,
 )
-from ACI_backend.integrations.jira.client import JiraClient
+from ACI_backend.integrations.jira.client import JiraAPIError, JiraClient
 from ACI_backend.integrations.jira.utils import (
     extract_jira_issue_keys,
 )
@@ -200,3 +200,57 @@ def test_ingest_jira_requirements_for_pull_request():
     jira_client.get_issue.assert_called_once_with(
         "PROJ-123",
     )
+
+
+@pytest.mark.django_db
+def test_ingest_jira_requirements_for_pull_request_skips_missing_issue():
+    repository = Repository.objects.create(
+        github_id=123456,
+        owner="kilel",
+        name="aci-demo",
+        full_name="kilel/aci-demo",
+        default_branch="main",
+    )
+
+    pull_request = PullRequest.objects.create(
+        repository=repository,
+        github_id=987654,
+        number=1,
+        title="Fix auth PROJ-404 and PROJ-123",
+        author="kilel",
+        source_branch="feature/auth",
+        target_branch="main",
+        base_sha="b" * 40,
+        head_sha="a" * 40,
+        state="open",
+        is_merged=False,
+        created_at="2026-08-17T10:00:00Z",
+        updated_at="2026-08-17T10:00:00Z",
+    )
+
+    jira_client = Mock()
+    jira_client.get_issue.side_effect = [
+        JiraAPIError("Jira issue not found."),
+        {
+            "key": "PROJ-123",
+            "fields": {
+                "summary": "Add authentication",
+                "description": "Users must be able to authenticate.",
+                "status": {
+                    "name": "To Do",
+                },
+            },
+        },
+    ]
+
+    requirements = ingest_jira_requirements_for_pull_request(
+        pull_request=pull_request,
+        text=pull_request.title,
+        jira_client=jira_client,
+    )
+
+    assert [requirement.external_id for requirement in requirements] == [
+        "PROJ-123",
+    ]
+    assert Requirement.objects.filter(external_id="PROJ-404").count() == 0
+    assert Requirement.objects.filter(external_id="PROJ-123").count() == 1

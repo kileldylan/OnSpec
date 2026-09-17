@@ -29,8 +29,16 @@ class JiraClient:
 		try:
 			response.raise_for_status()
 			payload = response.json()
-		except (requests.RequestException, ValueError) as error:
-			raise JiraAPIError("Jira returned an unusable response.") from error
+		except requests.RequestException as error:
+			if response.status_code == 404:
+				raise JiraAPIError(f"Jira issue {issue_key} was not found.") from error
+			raise JiraAPIError(
+				f"Jira returned an unusable response for {issue_key}."
+			) from error
+		except ValueError as error:
+			raise JiraAPIError(
+				f"Jira issue payload for {issue_key} is malformed."
+			) from error
 		if not isinstance(payload, dict) or "key" not in payload:
-			raise JiraAPIError("Jira issue response is malformed.")
+			raise JiraAPIError(f"Jira issue response for {issue_key} is malformed.")
 		return payload
