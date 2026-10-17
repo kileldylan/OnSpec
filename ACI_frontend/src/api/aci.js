@@ -36,9 +36,18 @@ api.interceptors.response.use(
 
 export const aciApi = {
   getCsrfToken: () => api.get('/auth/csrf/'),
-  register: (data) => api.post('/auth/register/', data),
-  login: (data) => api.post('/auth/login/', data),
-  logout: () => api.post('/auth/logout/'),
+  register: (data, csrfToken) =>
+    api.post('/auth/register/', data, {
+      headers: { 'X-CSRFToken': csrfToken },
+    }),
+  login: (data, csrfToken) =>
+    api.post('/auth/login/', data, {
+      headers: { 'X-CSRFToken': csrfToken },
+    }),
+  logout: (csrfToken) =>
+    api.post('/auth/logout/', null, {
+      headers: { 'X-CSRFToken': csrfToken },
+    }),
   getCurrentUser: () => api.get('/auth/me/'),
 
   // ============ REPOSITORIES ============

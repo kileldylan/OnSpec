@@ -20,20 +20,20 @@ export const AuthProvider = ({ children }) => {
   }, []);
 
   const login = async (credentials) => {
-    await withCsrf();
-    const response = await aciApi.login(credentials);
+    const csrfToken = await withCsrf();
+    const response = await aciApi.login(credentials, csrfToken);
     setUser(response.data.user);
   };
 
   const register = async (details) => {
-    await withCsrf();
-    const response = await aciApi.register(details);
+    const csrfToken = await withCsrf();
+    const response = await aciApi.register(details, csrfToken);
     setUser(response.data.user);
   };
 
   const logout = async () => {
-    await withCsrf();
-    await aciApi.logout();
+    const csrfToken = await withCsrf();
+    await aciApi.logout(csrfToken);
     setUser(null);
   };
 
