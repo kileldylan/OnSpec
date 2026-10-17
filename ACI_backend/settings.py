@@ -96,6 +96,7 @@ INSTALLED_APPS = [
     
     # Third-party
     "rest_framework",
+    "corsheaders",
 
 ]
 
@@ -104,6 +105,7 @@ INSTALLED_APPS = [
 # =============================================================================
 
 MIDDLEWARE = [
+    "corsheaders.middleware.CorsMiddleware",
     "django.middleware.security.SecurityMiddleware",
     "django.contrib.sessions.middleware.SessionMiddleware",
     "django.middleware.common.CommonMiddleware",
@@ -212,6 +214,15 @@ REST_FRAMEWORK = {
     ],
 }
 
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "https://on-spec.vercel.app",
+]
+
+# Allow cookies/sessions/CSRF tokens to be passed
+CORS_ALLOW_CREDENTIALS = True
+
 # CSRF Settings
 CSRF_TRUSTED_ORIGINS = [
     "http://localhost:8000",
@@ -220,4 +231,5 @@ CSRF_TRUSTED_ORIGINS = [
     "http://127.0.0.1:5173",
     "https://localhost:5173",
     "https://*.ngrok-free.app",
+    "https://on-spec.vercel.app",
 ]
