@@ -61,7 +61,12 @@ DEBUG = env.bool("DEBUG", default=False)
 
 ALLOWED_HOSTS = env.list(
     "ALLOWED_HOSTS",
-    default=["localhost", "127.0.0.1"],
+    default=[
+        "localhost", 
+        "127.0.0.1", 
+        "onspec.onrender.com", 
+        ".vercel.app"        
+    ],
 )
 
 # Dev tunnels (ngrok / cloudflared). A leading-dot entry is a subdomain wildcard
