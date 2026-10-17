@@ -238,3 +238,15 @@ CSRF_TRUSTED_ORIGINS = [
     "https://*.ngrok-free.app",
     "https://on-spec.vercel.app",
 ]
+
+# Trust Render's proxy to tell Django the request is HTTPS
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Ensure CSRF cookies are sent over HTTPS in production
+CSRF_COOKIE_SECURE = True
+SESSION_COOKIE_SECURE = True
+
+# If your frontend and backend are on different domains (Vercel vs Render), 
+# you MUST use SameSite=None for cross-site cookies.
+CSRF_COOKIE_SAMESITE = 'None'
+SESSION_COOKIE_SAMESITE = 'None'
