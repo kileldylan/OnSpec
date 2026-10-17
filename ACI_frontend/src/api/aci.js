@@ -74,6 +74,9 @@ export const aciApi = {
   
   getVerification: (id) => 
     api.get(`/verifications/${id}/`),
+
+  processQueuedVerifications: (data = {}) =>
+    api.post('/verifications/process-queued/', data),
   
   // ============ VERIFICATION RUNS ============
   getVerificationRuns: (params = {}) => 

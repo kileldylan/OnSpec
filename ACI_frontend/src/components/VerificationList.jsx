@@ -42,6 +42,7 @@ export const VerificationList = () => {
   const [statusFilter, setStatusFilter] = useState('all');
   const [sortBy, setSortBy] = useState('newest');
   const [showFilters, setShowFilters] = useState(false);
+  const [processingQueued, setProcessingQueued] = useState(false);
   const [pagination, setPagination] = useState({
     page: 1,
     pageSize: 10,
@@ -80,6 +81,27 @@ export const VerificationList = () => {
   const handleSearch = (e) => {
     e.preventDefault();
     fetchVerifications();
+  };
+
+  const handleProcessQueued = async () => {
+    try {
+      setProcessingQueued(true);
+      const response = await aciApi.processQueuedVerifications({ limit: 1 });
+      const processed = response.data?.processed || 0;
+
+      if (processed > 0) {
+        toast.success(`Processed ${processed} queued verification run${processed === 1 ? '' : 's'}.`);
+      } else {
+        toast('No queued verification runs waiting to be processed.');
+      }
+
+      await fetchVerifications();
+    } catch (error) {
+      console.error('Error processing queued verification runs:', error);
+      toast.error('Failed to run queued verification worker');
+    } finally {
+      setProcessingQueued(false);
+    }
   };
 
   const getStatusIcon = (status) => {
@@ -126,13 +148,27 @@ export const VerificationList = () => {
             {pagination.total} verifications across all requirements
           </p>
         </div>
-        <button
-          onClick={() => { setPagination({ ...pagination, page: 1 }); fetchVerifications(); }}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl bg-dark-card border border-dark-border hover:border-accent-middle/30 transition-colors text-sm"
-        >
-          <RefreshCw className="w-4 h-4" />
-          Refresh
-        </button>
+        <div className="flex items-center gap-3">
+          <button
+            onClick={handleProcessQueued}
+            disabled={processingQueued}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-accent-middle text-dark-bg hover:opacity-90 transition-opacity text-sm disabled:opacity-60 disabled:cursor-not-allowed"
+          >
+            {processingQueued ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <RefreshCw className="w-4 h-4" />
+            )}
+            {processingQueued ? 'Running worker...' : 'Run worker'}
+          </button>
+          <button
+            onClick={() => { setPagination({ ...pagination, page: 1 }); fetchVerifications(); }}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-dark-card border border-dark-border hover:border-accent-middle/30 transition-colors text-sm"
+          >
+            <RefreshCw className="w-4 h-4" />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* Filters */}
