@@ -21,3 +21,4 @@ tomli==2.4.1
 typing_extensions==4.16.0
 urllib3==2.7.0
 gunicorn
+corsheaders
