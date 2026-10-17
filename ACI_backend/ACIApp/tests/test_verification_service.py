@@ -64,6 +64,59 @@ def test_evaluator_contract_rejects_stale_evidence():
 
 
 @pytest.mark.django_db
+def test_evaluator_contract_accepts_queryset_evidence():
+    repository = Repository.objects.create(
+        github_id=654321,
+        owner="acme",
+        name="aci-demo-qs",
+        full_name="acme/aci-demo-qs",
+        default_branch="main",
+    )
+    pull_request = PullRequest.objects.create(
+        repository=repository,
+        github_id=777,
+        number=42,
+        title="Fix worker evidence",
+        author="dev",
+        source_branch="feature/fix",
+        target_branch="main",
+        base_sha="b" * 40,
+        head_sha="a" * 40,
+        state="open",
+        is_merged=False,
+        created_at="2026-08-17T10:00:00Z",
+        updated_at="2026-08-17T10:00:00Z",
+    )
+    requirement = Requirement.objects.create(
+        repository=repository,
+        external_id="JIRA-QS",
+        source="jira",
+        title="Worker can verify queryset evidence",
+        description="It should accept evidence batches from a queryset.",
+    )
+    evidence = Evidence.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+        evidence_type="code",
+        status="valid",
+        description="Fresh code from the queued run.",
+    )
+
+    conclusion = {
+        "status": "verified",
+        "summary": "Verified from queryset evidence.",
+        "confidence": 0.91,
+        "evidence": Evidence.objects.filter(pk=evidence.pk),
+    }
+
+    assert validate_evaluator_conclusion(
+        requirement=requirement,
+        evidence=Evidence.objects.filter(pk=evidence.pk),
+        conclusion=conclusion,
+    ) == conclusion
+
+
+@pytest.mark.django_db
 def test_create_verification_creates_verification():
     repository = Repository.objects.create(
         github_id=123456,

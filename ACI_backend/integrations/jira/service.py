@@ -3,6 +3,9 @@ import logging
 from ACI_backend.ACIApp.models import Requirement, RequirementPullRequest
 from ACI_backend.integrations.jira.client import JiraAPIError
 from ACI_backend.integrations.jira.utils import extract_jira_issue_keys
+from ACI_backend.integrations.verification.criteria import (
+    sync_requirement_criteria_from_text,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +55,10 @@ def ingest_jira_requirement(
     RequirementPullRequest.objects.get_or_create(
         requirement=requirement,
         pull_request=pull_request,
+    )
+    sync_requirement_criteria_from_text(
+        requirement=requirement,
+        text=fields.get("description") or requirement.description,
     )
 
     return requirement

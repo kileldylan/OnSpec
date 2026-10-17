@@ -6,12 +6,15 @@ from rest_framework.test import APIClient
 from ACI_backend.ACIApp.models import (
     ChangedFile,
     Commit,
+    CriterionVerification,
+    CriterionVerificationEvidence,
     DeliveryDecision,
     Evidence,
     EvidenceInvalidation,
     PullRequest,
     Repository,
     Requirement,
+    RequirementCriterion,
     RequirementPullRequest,
     Verification,
     VerificationEvidence,
@@ -329,3 +332,259 @@ def test_verification_detail_includes_requirement_and_pull_request_data():
     assert response.json()["requirement"]["external_id"] == "KIL-3"
     assert response.json()["requirement"]["title"] == "KIL-3 Add health check endpoint"
     assert response.json()["pull_request"]["number"] == 9
+
+
+@pytest.mark.django_db
+def test_verification_detail_exposes_ordered_criteria_with_evidence():
+    user = get_user_model().objects.create_user(
+        username="verification-criteria-reader",
+        password="test-password",
+    )
+    repository = Repository.objects.create(
+        github_id=889900,
+        owner="aci",
+        name="criteria-repo",
+        full_name="aci/criteria-repo",
+    )
+    repository.members.add(user)
+    pull_request = PullRequest.objects.create(
+        repository=repository,
+        github_id=332211,
+        number=22,
+        title="Ship health endpoint",
+        author="kilel",
+        source_branch="feature/health",
+        target_branch="main",
+        base_sha="b" * 40,
+        head_sha="a" * 40,
+        state="open",
+        is_merged=False,
+        created_at="2026-08-18T10:00:00Z",
+        updated_at="2026-08-18T10:00:00Z",
+    )
+    requirement = Requirement.objects.create(
+        repository=repository,
+        external_id="KIL-5",
+        source="jira",
+        title="Health endpoint",
+    )
+    criterion_1 = RequirementCriterion.objects.create(
+        requirement=requirement,
+        text="Health endpoint returns status 200.",
+        order=0,
+    )
+    criterion_2 = RequirementCriterion.objects.create(
+        requirement=requirement,
+        text="Health check is covered by tests.",
+        order=1,
+    )
+    verification = Verification.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+        status="partial",
+    )
+    evidence = Evidence.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+        evidence_type="code",
+        status="valid",
+        description="Health route implementation",
+        metadata={"filename": "health.py"},
+    )
+    VerificationEvidence.objects.create(
+        verification=verification,
+        evidence=evidence,
+    )
+    first_result = CriterionVerification.objects.create(
+        verification=verification,
+        criterion=criterion_1,
+        status="satisfied",
+        summary="Endpoint exists and returns a successful payload.",
+        confidence=0.9,
+        metadata={"evidence_count": 1},
+    )
+    CriterionVerification.objects.create(
+        verification=verification,
+        criterion=criterion_2,
+        status="missing",
+        summary="No test evidence found for this criterion.",
+        confidence=0.0,
+        metadata={"evidence_count": 0},
+    )
+    CriterionVerificationEvidence.objects.create(
+        criterion_verification=first_result,
+        evidence=evidence,
+    )
+
+    client = APIClient()
+    client.force_authenticate(user=user)
+    response = client.get(reverse("verification-detail", kwargs={"pk": verification.pk}))
+
+    assert response.status_code == 200
+    criteria = response.json()["criteria_evaluations"]
+    assert [item["criterion_text"] for item in criteria] == [
+        criterion_1.text,
+        criterion_2.text,
+    ]
+    assert criteria[0]["status"] == "satisfied"
+    assert criteria[0]["evidence"][0]["description"] == "Health route implementation"
+    assert criteria[1]["status"] == "missing"
+
+
+@pytest.mark.django_db
+def test_verification_detail_renders_requirement_criteria_even_before_results_exist():
+    user = get_user_model().objects.create_user(
+        username="verification-criteria-placeholder",
+        password="test-password",
+    )
+    repository = Repository.objects.create(
+        github_id=112233,
+        owner="aci",
+        name="placeholder-repo",
+        full_name="aci/placeholder-repo",
+    )
+    repository.members.add(user)
+    pull_request = PullRequest.objects.create(
+        repository=repository,
+        github_id=445566,
+        number=30,
+        title="Add login endpoint",
+        author="kilel",
+        source_branch="feature/login",
+        target_branch="main",
+        base_sha="b" * 40,
+        head_sha="a" * 40,
+        state="open",
+        is_merged=False,
+        created_at="2026-08-18T10:00:00Z",
+        updated_at="2026-08-18T10:00:00Z",
+    )
+    requirement = Requirement.objects.create(
+        repository=repository,
+        external_id="KIL-4",
+        source="jira",
+        title="KIL-4 Add login endpoint",
+        description=(
+            "Add a token-based login endpoint for the API using Django REST Framework. "
+            "Acceptance criteria: 1. POST /api/login accepts email and password. "
+            "2. Valid credentials return HTTP 200 with a token. "
+            "3. Invalid credentials return HTTP 401."
+        ),
+    )
+    verification = Verification.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+        status="pending",
+    )
+    RequirementCriterion.objects.create(
+        requirement=requirement,
+        text=(
+            "{'type': 'doc', 'content': [{'type': 'paragraph', 'content': [{'type': 'text', "
+            "'text': 'POST /api/login accepts email and password.'}]}], 'attrs': {'localId': 'bad'}}"
+        ),
+        order=0,
+    )
+    RequirementCriterion.objects.create(
+        requirement=requirement,
+        text="POST /api/login accepts email and password.",
+        order=1,
+    )
+    RequirementCriterion.objects.create(
+        requirement=requirement,
+        text="Valid credentials return HTTP 200 with a token.",
+        order=2,
+    )
+    RequirementCriterion.objects.create(
+        requirement=requirement,
+        text="Invalid credentials return HTTP 401.",
+        order=3,
+    )
+
+    client = APIClient()
+    client.force_authenticate(user=user)
+    response = client.get(reverse("verification-detail", kwargs={"pk": verification.pk}))
+
+    assert response.status_code == 200
+    criteria = response.json()["criteria_evaluations"]
+    assert [item["criterion_text"] for item in criteria] == [
+        "POST /api/login accepts email and password.",
+        "Valid credentials return HTTP 200 with a token.",
+        "Invalid credentials return HTTP 401.",
+    ]
+    assert all(item["status"] == "missing" for item in criteria)
+
+
+@pytest.mark.django_db
+def test_verification_worker_can_process_queued_runs():
+    user = get_user_model().objects.create_user(
+        username="verification-worker",
+        password="test-password",
+    )
+    repository = Repository.objects.create(
+        github_id=998877,
+        owner="aci",
+        name="worker-repo",
+        full_name="aci/worker-repo",
+    )
+    repository.members.add(user)
+    pull_request = PullRequest.objects.create(
+        repository=repository,
+        github_id=1234567,
+        number=28,
+        title="Refactor validation",
+        author="kilel",
+        source_branch="feature/validation",
+        target_branch="main",
+        base_sha="b" * 40,
+        head_sha="a" * 40,
+        state="open",
+        is_merged=False,
+        created_at="2026-08-18T10:00:00Z",
+        updated_at="2026-08-18T10:00:00Z",
+    )
+    requirement = Requirement.objects.create(
+        repository=repository,
+        external_id="VALID-9",
+        source="jira",
+        title="Validation is resilient",
+    )
+    commit = Commit.objects.create(
+        repository=repository,
+        pull_request=pull_request,
+        sha="d" * 40,
+        message="Refactor validation logic",
+        author="kilel",
+        committed_at="2026-08-18T10:35:00Z",
+    )
+    changed_file = ChangedFile.objects.create(
+        commit=commit,
+        filename="validation/service.py",
+        status="modified",
+    )
+    verification = Verification.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+        status="stale",
+    )
+    run = VerificationRun.objects.create(
+        verification=verification,
+        triggering_changed_file=changed_file,
+        reason="Stale evidence needs a fresh read.",
+    )
+
+    client = APIClient()
+    client.force_authenticate(user=user)
+    response = client.post(
+        reverse("verification-process-queued"),
+        {"limit": 1},
+        format="json",
+    )
+
+    assert response.status_code == 200
+    assert response.json()["processed"] == 1
+    assert response.json()["run_ids"] == [run.id]
+
+    run.refresh_from_db()
+    assert run.status == "completed"
+    verification.refresh_from_db()
+    assert verification.status in {"verified", "partial", "unverified"}

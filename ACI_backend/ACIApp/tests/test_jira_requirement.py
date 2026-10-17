@@ -79,6 +79,159 @@ def test_ingest_jira_requirement_creates_requirement_and_links_pr():
     assert link.pull_request == pull_request
 
 
+@pytest.mark.django_db
+def test_ingest_jira_requirement_extracts_criteria_from_stringified_doc_description():
+    repository = Repository.objects.create(
+        github_id=246810,
+        owner="kilo",
+        name="criteria-repo",
+        full_name="kilo/criteria-repo",
+        default_branch="main",
+    )
+    pull_request = PullRequest.objects.create(
+        repository=repository,
+        github_id=135791,
+        number=11,
+        title="Add login endpoint",
+        author="kilel",
+        source_branch="feature/login",
+        target_branch="main",
+        base_sha="b" * 40,
+        head_sha="a" * 40,
+        state="open",
+        is_merged=False,
+        created_at="2026-08-17T10:00:00Z",
+        updated_at="2026-08-17T10:00:00Z",
+    )
+
+    jira_issue = {
+        "key": "KIL-4",
+        "fields": {
+            "summary": "Add login endpoint",
+            "description": "{'type': 'doc', 'version': 1, 'content': [{'type': 'paragraph', 'content': [{'type': 'text', 'text': 'Add a token-based login endpoint for the API using Django REST Framework.'}], 'attrs': {'localId': 'fa80e12a2a4a'}}, {'type': 'paragraph', 'content': [{'type': 'text', 'text': 'Acceptance criteria:'}], 'attrs': {'localId': '529ce8fdbe4c'}}, {'type': 'orderedList', 'attrs': {'order': 1, 'localId': '837d7c04dd35'}, 'content': [{'type': 'listItem', 'attrs': {'localId': 'e6504757a906'}, 'content': [{'type': 'paragraph', 'content': [{'type': 'text', 'text': 'POST /api/login accepts email and password.'}]}]}, {'type': 'listItem', 'attrs': {'localId': '4b52b3fc4d2e'}, 'content': [{'type': 'paragraph', 'content': [{'type': 'text', 'text': 'Valid credentials return HTTP 200 with a token.'}]}]}, {'type': 'listItem', 'attrs': {'localId': '7fbc4456266d'}, 'content': [{'type': 'paragraph', 'content': [{'type': 'text', 'text': 'Invalid credentials return HTTP 401.'}]}]}]}]}",
+            "status": {"name": "To Do"},
+        },
+    }
+
+    requirement = ingest_jira_requirement(
+        pull_request=pull_request,
+        jira_issue=jira_issue,
+    )
+
+    criteria = list(requirement.criteria.filter(is_active=True).order_by("order"))
+    assert [criterion.text for criterion in criteria] == [
+        "POST /api/login accepts email and password.",
+        "Valid credentials return HTTP 200 with a token.",
+        "Invalid credentials return HTTP 401.",
+    ]
+
+
+@pytest.mark.django_db
+def test_sync_requirement_criteria_is_idempotent():
+    repository = Repository.objects.create(
+        github_id=314159,
+        owner="oci",
+        name="idempotent-repo",
+        full_name="oci/idempotent-repo",
+        default_branch="main",
+    )
+    pull_request = PullRequest.objects.create(
+        repository=repository,
+        github_id=222222,
+        number=99,
+        title="Login API",
+        author="kilel",
+        source_branch="feature/login",
+        target_branch="main",
+        base_sha="b" * 40,
+        head_sha="a" * 40,
+        state="open",
+        is_merged=False,
+        created_at="2026-08-17T10:00:00Z",
+        updated_at="2026-08-17T10:00:00Z",
+    )
+    requirement = Requirement.objects.create(
+        repository=repository,
+        external_id="KIL-99",
+        source="jira",
+        title="Login API",
+        description=(
+            "Add a token-based login endpoint for the API using Django REST Framework. "
+            "Acceptance criteria: 1. POST /api/login accepts email and password. "
+            "2. Valid credentials return HTTP 200 with a token. "
+            "3. Invalid credentials return HTTP 401."
+        ),
+    )
+
+    from ACI_backend.integrations.verification.criteria import sync_requirement_criteria_from_text
+
+    first_sync = sync_requirement_criteria_from_text(requirement=requirement, text=requirement.description)
+    second_sync = sync_requirement_criteria_from_text(requirement=requirement, text=requirement.description)
+
+    assert len(first_sync) == 3
+    assert len(second_sync) == 0
+    assert requirement.criteria.filter(is_active=True).count() == 3
+
+
+@pytest.mark.django_db
+def test_ingest_jira_requirement_extracts_criteria_from_atlassian_doc_description():
+    repository = Repository.objects.create(
+        github_id=246810,
+        owner="kilo",
+        name="criteria-repo",
+        full_name="kilo/criteria-repo",
+        default_branch="main",
+    )
+    pull_request = PullRequest.objects.create(
+        repository=repository,
+        github_id=135791,
+        number=11,
+        title="Add login endpoint",
+        author="kilel",
+        source_branch="feature/login",
+        target_branch="main",
+        base_sha="b" * 40,
+        head_sha="a" * 40,
+        state="open",
+        is_merged=False,
+        created_at="2026-08-17T10:00:00Z",
+        updated_at="2026-08-17T10:00:00Z",
+    )
+
+    jira_issue = {
+        "key": "KIL-4",
+        "fields": {
+            "summary": "Add login endpoint",
+            "description": {
+                "type": "doc",
+                "content": [
+                    {"type": "paragraph", "content": [{"type": "text", "text": "Add a token-based login endpoint for the API using Django REST Framework."}]},
+                    {"type": "paragraph", "content": [{"type": "text", "text": "Acceptance criteria:"}]},
+                    {"type": "bulletList", "content": [
+                        {"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "POST /api/login accepts email and password."}]}]},
+                        {"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Valid credentials return HTTP 200 with a token."}]}]},
+                        {"type": "listItem", "content": [{"type": "paragraph", "content": [{"type": "text", "text": "Invalid credentials return HTTP 401."}]}]},
+                    ]},
+                ],
+            },
+            "status": {"name": "To Do"},
+        },
+    }
+
+    requirement = ingest_jira_requirement(
+        pull_request=pull_request,
+        jira_issue=jira_issue,
+    )
+
+    criteria = list(requirement.criteria.filter(is_active=True).order_by("order"))
+    assert len(criteria) == 3
+    assert [criterion.text for criterion in criteria] == [
+        "POST /api/login accepts email and password.",
+        "Valid credentials return HTTP 200 with a token.",
+        "Invalid credentials return HTTP 401.",
+    ]
+
+
 def test_extract_jira_issue_keys():
     text = """
     Implements PROJ-123.

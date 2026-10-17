@@ -55,3 +55,71 @@ def test_login_rejects_invalid_credentials():
     )
 
     assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_current_user_returns_null_for_anonymous_session():
+    response = APIClient().get(reverse("auth-me"))
+
+    assert response.status_code == 200
+    assert response.json() == {"user": None}
+
+
+@pytest.mark.django_db
+def test_login_rejects_missing_fields():
+    response = APIClient().post(
+        reverse("auth-login"),
+        {"password": "strong-password-123"},
+        format="json",
+    )
+
+    assert response.status_code == 400
+    assert "username" in response.json()
+
+
+@pytest.mark.django_db
+def test_login_requires_csrf_token():
+    client = APIClient(enforce_csrf_checks=True)
+    response = client.post(
+        reverse("auth-login"),
+        {"username": "missing-user", "password": "wrong-password"},
+        format="json",
+    )
+    assert response.status_code == 403
+
+    csrf_response = client.get(reverse("auth-csrf"))
+    csrf_token = csrf_response.cookies["csrftoken"].value
+    response = client.post(
+        reverse("auth-login"),
+        {"username": "missing-user", "password": "wrong-password"},
+        format="json",
+        HTTP_X_CSRFTOKEN=csrf_token,
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+def test_register_requires_csrf_token():
+    client = APIClient(enforce_csrf_checks=True)
+    data = {
+        "username": "csrf-user",
+        "email": "csrf@example.com",
+        "password": "strong-password-123",
+        "password_confirm": "strong-password-123",
+    }
+    response = client.post(reverse("auth-register"), data, format="json")
+
+    assert response.status_code == 403
+
+    csrf_response = client.get(reverse("auth-csrf"))
+    csrf_token = csrf_response.cookies["csrftoken"].value
+    response = client.post(
+        reverse("auth-register"),
+        data,
+        format="json",
+        HTTP_X_CSRFTOKEN=csrf_token,
+    )
+
+    assert response.status_code == 201
+    assert response.json()["user"]["username"] == "csrf-user"

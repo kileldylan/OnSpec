@@ -1,6 +1,9 @@
 """Deterministic persistence helpers for requirement verification criteria."""
 
+import ast
 from fnmatch import fnmatch
+import html
+import json
 import re
 
 from django.db import transaction
@@ -11,6 +14,7 @@ from ACI_backend.ACIApp.models import (
     CriterionVerificationEvidence,
     Evidence,
     RequirementCriterion,
+    Verification,
     VerificationEvidence,
 )
 
@@ -60,9 +64,8 @@ def create_criterion(
     max_order = (
         RequirementCriterion.objects.filter(requirement=requirement)
         .aggregate(max_order=Max("order"))["max_order"]
-        or -1
     )
-    order = max_order + 1
+    order = (max_order + 1) if max_order is not None else 0
 
     return RequirementCriterion.objects.create(
         requirement=requirement,
@@ -104,6 +107,210 @@ def generate_initial_criteria(*, requirement, criteria):
     return created
 
 
+def _normalize_jira_text(value):
+    """Coerce Jira rich-text objects into plain text."""
+    if value is None:
+        return ""
+
+    if isinstance(value, str):
+        text = value.strip()
+        if text.startswith("{") or text.startswith("["):
+            for parser in (json.loads, ast.literal_eval):
+                try:
+                    return _normalize_jira_text(parser(text))
+                except (TypeError, ValueError, SyntaxError):
+                    continue
+    elif isinstance(value, (list, tuple)):
+        text = "\n".join(
+            part for part in (_normalize_jira_text(item) for item in value) if part
+        )
+        return text.strip()
+    elif isinstance(value, dict):
+        node_type = value.get("type")
+        if node_type in {"bulletList", "orderedList"}:
+            return "\n".join(
+                part for part in (
+                    _normalize_jira_text(item) for item in value.get("content", [])
+                ) if part
+            )
+        if node_type == "listItem":
+            return "\n".join(
+                part for part in (
+                    _normalize_jira_text(item) for item in value.get("content", [])
+                ) if part
+            )
+        if node_type == "paragraph":
+            return _normalize_jira_text(value.get("content", []))
+        if isinstance(value.get("text"), str):
+            return value["text"]
+        if isinstance(value.get("value"), str):
+            return value["value"]
+        if "content" in value:
+            return _normalize_jira_text(value["content"])
+        chunks = []
+        for key, item in value.items():
+            if key in {"type", "attrs", "attributes", "marks"}:
+                continue
+            chunk = _normalize_jira_text(item)
+            if chunk:
+                chunks.append(chunk)
+        return "\n".join(chunks).strip()
+    else:
+        text = str(value)
+
+    text = html.unescape(text)
+    text = re.sub(r"<[^>]+>", "\n", text)
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    return text.strip()
+
+
+def _looks_like_raw_jira_blob(value):
+    text = (value or "").strip()
+    if not text:
+        return False
+    if text.startswith("{") or text.startswith("["):
+        return True
+    return any(
+        marker in text.lower()
+        for marker in (
+            "'type':",
+            "'content':",
+            "localid",
+            "attrs",
+            "orderedlist",
+            "bulletlist",
+            "listitem",
+        )
+    )
+
+
+def _criterion_identity(value):
+    text = (value or "").strip()
+    text = text.lower()
+    text = text.replace("/", "")
+    text = re.sub(r"\s+", " ", text)
+    text = re.sub(r"[^a-z0-9 ]+", "", text)
+    return text.strip()
+
+
+def sync_requirement_criteria_from_text(*, requirement, text=None):
+    """Create or refresh active criteria from a requirement description."""
+    raw_text = _normalize_jira_text(
+        text if text is not None else requirement.description or "",
+    )
+    if not raw_text:
+        return []
+
+    stale_criteria = RequirementCriterion.objects.filter(
+        requirement=requirement,
+        is_active=True,
+    ).exclude(text="")
+    for criterion in list(stale_criteria):
+        if _looks_like_raw_jira_blob(criterion.text):
+            criterion.delete()
+
+    lines = []
+    criteria_marker = None
+    lowered = raw_text.lower()
+    for marker in ("acceptance criteria", "criteria"):
+        idx = lowered.find(marker)
+        if idx != -1:
+            criteria_marker = marker
+            remainder = raw_text[idx + len(marker):]
+            remainder = remainder.lstrip(" :;\t\n-")
+            if "\n" in remainder:
+                lines = [
+                    part.strip() for part in remainder.splitlines()
+                    if part and part.strip()
+                ]
+            else:
+                remainder = re.sub(r"\s+", " ", remainder)
+                parts = re.split(
+                    r"(?:^|(?<=\s))\d+\.?\s+(?=[A-Z])|(?:^|(?<=\s))[-*•]\s+",
+                    remainder,
+                )
+                lines = [part.strip() for part in parts if part and part.strip()]
+            break
+
+    if not lines:
+        in_criteria_block = False
+        for raw_line in raw_text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            normalized = line.lower()
+            if "acceptance criteria" in normalized or normalized == "criteria":
+                in_criteria_block = True
+                continue
+            if normalized.startswith(("definition of done", "notes:", "notes")):
+                if in_criteria_block:
+                    break
+                continue
+            cleaned = re.sub(r"^(?:[-*•]|\d+[.)])\s*", "", line)
+            cleaned = cleaned.strip()
+            if not cleaned:
+                continue
+            if in_criteria_block or (len(raw_text.splitlines()) <= 3 and re.match(r"^(?:[-*•]|\d+[.)])\s*", line)):
+                lines.append(cleaned)
+
+    if not lines:
+        fallback_lines = []
+        for raw_line in raw_text.splitlines():
+            line = raw_line.strip()
+            if not line:
+                continue
+            if re.match(r"^(?:[-*•]|\d+[.)])\s*", line):
+                cleaned = re.sub(r"^(?:[-*•]|\d+[.)])\s*", "", line).strip()
+                if cleaned:
+                    fallback_lines.append(cleaned)
+        if fallback_lines:
+            lines = fallback_lines
+        else:
+            lines = [raw_text[:220].strip()]
+
+    existing = {
+        _criterion_identity(item.text): item
+        for item in RequirementCriterion.objects.filter(
+            requirement=requirement,
+            is_active=True,
+        )
+    }
+
+    duplicates = []
+    seen = set()
+    for item in RequirementCriterion.objects.filter(
+        requirement=requirement,
+        is_active=True,
+    ).order_by("order", "id"):
+        key = _criterion_identity(item.text)
+        if not key:
+            continue
+        if key in seen:
+            duplicates.append(item)
+            continue
+        seen.add(key)
+
+    for item in duplicates:
+        item.delete()
+
+    created = []
+    for text_value in lines[:12]:
+        candidate = text_value.strip()
+        if not candidate or candidate.lower() in {"acceptance criteria", "criteria"}:
+            continue
+        normalized_candidate = _criterion_identity(candidate)
+        if normalized_candidate in existing:
+            continue
+        created.append(create_criterion(
+            requirement=requirement,
+            text=candidate,
+            category="behavior",
+            required=True,
+        ))
+        existing[normalized_candidate] = created[-1]
+    return created
+
+
 @transaction.atomic
 def record_criterion_verification(
     *,
@@ -131,8 +338,12 @@ def record_criterion_verification(
     )
 
     for ev in evidence:
-        CriterionVerificationEvidence.objects.create(
+        CriterionVerificationEvidence.objects.get_or_create(
             criterion_verification=cv,
+            evidence=ev,
+        )
+        VerificationEvidence.objects.get_or_create(
+            verification=verification,
             evidence=ev,
         )
 

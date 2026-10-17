@@ -93,11 +93,14 @@ def validate_evaluator_conclusion(*, requirement, evidence, conclusion):
         raise ValueError("Evaluator confidence must be between 0 and 1.")
     if not isinstance(conclusion["summary"], str):
         raise ValueError("Evaluator summary must be a string.")
-    if not isinstance(conclusion["evidence"], (list, tuple)):
+    evidence_list = conclusion["evidence"]
+    if isinstance(evidence_list, (str, bytes)) or not hasattr(evidence_list, "__iter__"):
         raise ValueError("Evaluator evidence must be a list.")
+    evidence_list = list(evidence_list)
+    conclusion["evidence"] = evidence_list
 
     supplied_evidence = {item.pk: item for item in evidence}
-    for item in conclusion["evidence"]:
+    for item in evidence_list:
         if item.pk not in supplied_evidence:
             raise ValueError("Evaluator referenced evidence outside its input.")
         if item.requirement_id != requirement.pk:
@@ -177,6 +180,51 @@ def _build_evidence_summary(pull_request, valid_evidence, missing_types=None):
     return (
         f"PR #{pr_num} has valid code, test, and CI evidence.{file_part}{extra}"
     )
+
+
+def _criteria_outcome_for_verification(verification):
+    """Score verification quality using the requirement's acceptance criteria."""
+    results = list(
+        CriterionVerification.objects.filter(verification=verification)
+        .select_related("criterion")
+        .order_by("criterion__order", "criterion_id", "evaluated_at", "id")
+    )
+    if not results:
+        return None
+
+    total = len(results)
+    satisfied = sum(1 for result in results if result.status == "satisfied")
+    partial = sum(1 for result in results if result.status == "partial")
+    failed = sum(1 for result in results if result.status in {"failed", "missing"})
+    not_applicable = sum(1 for result in results if result.status == "not_applicable")
+    active_total = total - not_applicable
+    if active_total == 0:
+        return {
+            "status": "verified",
+            "summary": "All applicable acceptance criteria were marked not applicable.",
+            "confidence": 1.0,
+        }
+
+    ratio = satisfied / active_total
+    if failed and satisfied == 0 and partial == 0:
+        status = "unverified"
+    elif failed or partial:
+        status = "partial"
+    elif satisfied == active_total:
+        status = "verified"
+    else:
+        status = "partial"
+
+    confidence = max(0.0, round(ratio, 2))
+    summary = (
+        f"{satisfied}/{active_total} acceptance criteria satisfied; "
+        f"{partial} partial; {failed} missing/failed."
+    )
+    return {
+        "status": status,
+        "summary": summary,
+        "confidence": confidence,
+    }
 
 
 def _evaluate_evidence(*, requirement, pull_request, evidence):
@@ -733,7 +781,7 @@ def complete_reverification_run(
         raise ValueError("Only a running re-verification can be completed.")
 
     verification = run.verification
-    evidence = evidence or []
+    evidence = list(evidence or [])
     invalid_evidence = [
         item
         for item in evidence
@@ -849,6 +897,16 @@ def process_next_reverification_run(*, evaluator=None, test_runner=None):
         verification=verification,
         evidence=current_evidence,
     )
+
+    criteria_conclusion = _criteria_outcome_for_verification(verification)
+    if criteria_conclusion is not None:
+        conclusion = {
+            **conclusion,
+            "status": criteria_conclusion["status"],
+            "summary": criteria_conclusion["summary"],
+            "confidence": criteria_conclusion["confidence"],
+            "evidence": list(current_evidence),
+        }
 
     # Enhance the top-level summary with criterion results for more detail
     base_summary = conclusion.get("summary", "")

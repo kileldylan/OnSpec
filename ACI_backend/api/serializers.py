@@ -1,8 +1,11 @@
+import re
+
 from rest_framework import serializers
 
 from ACI_backend.ACIApp.models import (
     ChangedFile,
     Commit,
+    CriterionVerification,
     DeliveryDecision,
     Evidence,
     EvidenceInvalidation,
@@ -12,6 +15,9 @@ from ACI_backend.ACIApp.models import (
     TestExecution,
     Verification,
     VerificationRun,
+)
+from ACI_backend.integrations.verification.criteria import (
+    sync_requirement_criteria_from_text,
 )
 
 
@@ -181,12 +187,46 @@ class EvidenceSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class CriterionVerificationSerializer(serializers.ModelSerializer):
+    criterion_text = serializers.CharField(source="criterion.text", read_only=True)
+    criterion_category = serializers.CharField(source="criterion.category", read_only=True)
+    evidence = serializers.SerializerMethodField()
+
+    class Meta:
+        model = CriterionVerification
+        fields = [
+            "id",
+            "criterion",
+            "criterion_text",
+            "criterion_category",
+            "status",
+            "summary",
+            "confidence",
+            "metadata",
+            "evaluated_at",
+            "evidence",
+        ]
+        read_only_fields = fields
+
+    def get_evidence(self, obj):
+        evidence_links = obj.evidence_links.select_related(
+            "evidence__changed_file",
+            "evidence__commit",
+        ).order_by("id")
+        return [
+            EvidenceSerializer(link.evidence).data
+            for link in evidence_links
+        ]
+
+
 class VerificationSerializer(serializers.ModelSerializer):
     requirement = RequirementSerializer(read_only=True)
     pull_request = PullRequestSerializer(read_only=True)
     evidence_ids = serializers.SerializerMethodField()
     evidence = serializers.SerializerMethodField()
     decision_history = serializers.SerializerMethodField()
+    criteria_evaluations = serializers.SerializerMethodField()
+    evidence_count = serializers.SerializerMethodField()
 
     class Meta:
         model = Verification
@@ -201,7 +241,9 @@ class VerificationSerializer(serializers.ModelSerializer):
             "invalidated_at",
             "created_at",
             "evidence_ids",
+            "evidence_count",
             "evidence",
+            "criteria_evaluations",
             "decision_history",
         ]
         read_only_fields = fields
@@ -214,11 +256,62 @@ class VerificationSerializer(serializers.ModelSerializer):
             )
         )
 
+    def get_evidence_count(self, verification):
+        return verification.evidence_links.count()
+
     def get_evidence(self, verification):
         evidence = Evidence.objects.filter(
             verification_links__verification=verification,
         ).prefetch_related("invalidations__triggering_changed_file")
         return EvidenceSerializer(evidence, many=True).data
+
+    def get_criteria_evaluations(self, verification):
+        raw_criteria = (
+            verification.requirement.criteria.filter(is_active=True)
+            .exclude(text__startswith="{")
+            .exclude(text__contains="'type':")
+            .exclude(text__contains="'content':")
+            .exclude(text__contains="localId")
+            .order_by("order", "id")
+        )
+
+        seen = set()
+        criteria = []
+        for criterion in raw_criteria:
+            key = re.sub(r"\s+", " ", (criterion.text or "").strip().lower())
+            key = key.replace("/", "")
+            key = re.sub(r"[^a-z0-9 ]+", "", key)
+            if not key or key in seen:
+                continue
+            seen.add(key)
+            criteria.append(criterion)
+
+        result_by_criterion = {
+            result.criterion_id: result
+            for result in verification.criterion_results.select_related("criterion")
+        }
+
+        serialized = []
+        for criterion in criteria:
+            result = result_by_criterion.get(criterion.id)
+            if result is not None:
+                serialized.append(CriterionVerificationSerializer(result).data)
+                continue
+
+            serialized.append({
+                "id": None,
+                "criterion": criterion.id,
+                "criterion_text": criterion.text,
+                "criterion_category": criterion.category,
+                "status": "missing",
+                "summary": "No evidence has been recorded for this criterion yet.",
+                "confidence": 0.0,
+                "metadata": {"evidence_count": 0},
+                "evaluated_at": None,
+                "evidence": [],
+            })
+
+        return serialized
 
     def get_decision_history(self, verification):
         return list(

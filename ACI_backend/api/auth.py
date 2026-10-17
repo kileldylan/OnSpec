@@ -1,5 +1,6 @@
 from django.contrib.auth import authenticate, get_user_model, login, logout
 from django.middleware.csrf import get_token
+from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import serializers, status
 from rest_framework.decorators import api_view, permission_classes
@@ -39,6 +40,11 @@ class RegistrationSerializer(serializers.Serializer):
         return User.objects.create_user(**validated_data)
 
 
+class LoginSerializer(serializers.Serializer):
+    username = serializers.CharField()
+    password = serializers.CharField(write_only=True, trim_whitespace=False)
+
+
 def user_payload(user):
     return {
         "id": user.id,
@@ -58,6 +64,7 @@ def csrf_token(request):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@csrf_protect
 def register(request):
     serializer = RegistrationSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -68,9 +75,12 @@ def register(request):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@csrf_protect
 def login_view(request):
-    identifier = request.data.get("username", "").strip()
-    password = request.data.get("password", "")
+    serializer = LoginSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+    identifier = serializer.validated_data["username"]
+    password = serializer.validated_data["password"]
     username = identifier
     if "@" in identifier:
         username = User.objects.filter(email__iexact=identifier).values_list(
@@ -94,6 +104,8 @@ def logout_view(request):
 
 
 @api_view(["GET"])
-@permission_classes([IsAuthenticated])
+@permission_classes([AllowAny])
 def current_user(request):
+    if not request.user.is_authenticated:
+        return Response({"user": None})
     return Response({"user": user_payload(request.user)})

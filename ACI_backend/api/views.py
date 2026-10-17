@@ -27,6 +27,8 @@ from ACI_backend.api.permissions import visible_repositories
 from ACI_backend.integrations.jira.client import JiraAPIError, JiraClient
 from ACI_backend.integrations.jira.service import ingest_jira_requirement
 from ACI_backend.integrations.verification.service import (
+    process_next_reverification_run,
+    recover_stuck_reverification_runs,
     start_initial_verification,
 )
 
@@ -250,6 +252,50 @@ class VerificationViewSet(viewsets.ReadOnlyModelViewSet):
         if status:
             queryset = queryset.filter(status=status)
         return queryset
+
+    @action(detail=False, methods=["post"], url_path="process-queued")
+    def process_queued(self, request):
+        limit = request.data.get("limit", 1)
+        try:
+            limit = int(limit)
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "limit must be a positive integer."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if limit < 1:
+            return Response(
+                {"detail": "limit must be at least 1."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        recover_stuck_reverification_runs()
+        processed_run_ids = []
+        processed_verification_ids = []
+
+        for _ in range(limit):
+            queued_run = VerificationRun.objects.filter(
+                status="queued",
+            ).order_by("requested_at").first()
+            if queued_run is None:
+                break
+
+            verification = process_next_reverification_run()
+            if verification is None:
+                break
+
+            processed_run_ids.append(queued_run.id)
+            processed_verification_ids.append(verification.id)
+
+        return Response(
+            {
+                "processed": len(processed_run_ids),
+                "run_ids": processed_run_ids,
+                "verification_ids": processed_verification_ids,
+            },
+            status=status.HTTP_200_OK,
+        )
 
 
 class VerificationRunViewSet(viewsets.ReadOnlyModelViewSet):
