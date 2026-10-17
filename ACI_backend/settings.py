@@ -228,15 +228,10 @@ CORS_ALLOWED_ORIGINS = [
 # Allow cookies/sessions/CSRF tokens to be passed
 CORS_ALLOW_CREDENTIALS = True
 
-# CSRF Settings
 CSRF_TRUSTED_ORIGINS = [
-    "http://localhost:8000",
-    "http://127.0.0.1:8000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "https://localhost:5173",
-    "https://*.ngrok-free.app",
     "https://on-spec.vercel.app",
+    "https://onspec.onrender.com",
+    "http://localhost:5173",
 ]
 
 # Trust Render's proxy to tell Django the request is HTTPS
