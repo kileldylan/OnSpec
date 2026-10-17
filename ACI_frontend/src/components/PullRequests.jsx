@@ -176,7 +176,7 @@ export const PullRequests = () => {
   }
 
   return (
-    <div className="space-y-6 animate-slide-up">
+    <div className="min-w-0 space-y-6 animate-slide-up">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -188,7 +188,7 @@ export const PullRequests = () => {
             {pullRequests.length} pull requests across {repositories.length} repositories
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
             onClick={handleRefresh}
             disabled={refreshing}
@@ -208,12 +208,12 @@ export const PullRequests = () => {
       <div className="card p-4">
         <div className="flex flex-col md:flex-row gap-4">
           {/* Repository Filter */}
-          <div className="flex items-center gap-2">
+          <div className="min-w-0 flex items-center gap-2">
             <Filter className="w-4 h-4 text-dark-muted" />
             <select
               value={selectedRepo}
               onChange={(e) => setSelectedRepo(e.target.value)}
-              className="px-3 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle text-sm"
+              className="w-full min-w-0 px-3 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle text-sm"
             >
               <option value="all">All Repositories</option>
               {repositories.map(repo => (
@@ -225,7 +225,7 @@ export const PullRequests = () => {
           </div>
 
           {/* Search */}
-          <div className="flex-1 relative">
+          <div className="min-w-0 flex-1 relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-muted" />
             <input
               type="text"
@@ -240,7 +240,7 @@ export const PullRequests = () => {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle text-sm"
+            className="w-full min-w-0 px-3 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle text-sm md:w-auto"
           >
             <option value="all">All Statuses</option>
             <option value="verified">Verified</option>
@@ -253,7 +253,7 @@ export const PullRequests = () => {
 
       {/* PR Cards */}
       {filteredPRs.length === 0 ? (
-        <div className="card p-12 text-center">
+        <div className="card p-6 text-center sm:p-12">
           <GitPullRequest className="w-16 h-16 text-dark-muted/30 mx-auto mb-4" />
           <h3 className="text-lg font-semibold mb-2">No Pull Requests Found</h3>
           <p className="text-dark-muted text-sm">
@@ -272,7 +272,7 @@ export const PullRequests = () => {
             return (
               <div
                 key={pr.id}
-                className="card p-5 hover:border-accent-middle/30 hover:shadow-lg hover:shadow-accent-start/5 transition-all duration-300 cursor-pointer group"
+                className="card min-w-0 p-4 hover:border-accent-middle/30 hover:shadow-lg hover:shadow-accent-start/5 transition-all duration-300 cursor-pointer group sm:p-5"
                 onClick={() => navigate(`/pull-requests/${pr.id}?repo=${pr.repository}`)}
               >
                 <div className="flex flex-col md:flex-row md:items-start justify-between gap-4">
@@ -282,13 +282,13 @@ export const PullRequests = () => {
                       <div className="mt-1">
                         <StatusBadge status={status} size="sm" />
                       </div>
-                      <div>
+                      <div className="min-w-0 flex-1">
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="text-sm font-mono text-dark-muted">
                             #{pr.number}
                           </span>
                           <span className="text-sm text-dark-muted">•</span>
-                          <span className="text-sm font-medium truncate">
+                          <span className="min-w-0 break-words text-sm font-medium sm:truncate">
                             {pr.title}
                           </span>
                         </div>
@@ -320,7 +320,7 @@ export const PullRequests = () => {
                   </div>
 
                   {/* Right: Status Info */}
-                  <div className="flex items-center gap-4 flex-shrink-0">
+                  <div className="flex flex-wrap items-center justify-between gap-3 sm:flex-shrink-0 sm:justify-end sm:gap-4">
                     {verifications[pr.id] && (
                       <div className="text-right">
                         <div className="flex items-center gap-2">

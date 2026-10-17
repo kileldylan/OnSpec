@@ -154,7 +154,7 @@ export const Requirements = () => {
   }
 
   return (
-    <div className="space-y-6 animate-slide-up">
+    <div className="min-w-0 space-y-6 animate-slide-up">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -166,7 +166,7 @@ export const Requirements = () => {
             {requirements.length} requirements across {repositories.length} repositories
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
             onClick={handleRefresh}
             disabled={refreshing}
@@ -186,12 +186,12 @@ export const Requirements = () => {
       <div className="card p-4">
         <div className="flex flex-col md:flex-row gap-4 flex-wrap">
           {/* Repository Filter */}
-          <div className="flex items-center gap-2">
+          <div className="min-w-0 flex items-center gap-2">
             <Filter className="w-4 h-4 text-dark-muted" />
             <select
               value={selectedRepo}
               onChange={(e) => setSelectedRepo(e.target.value)}
-              className="px-3 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle text-sm"
+              className="w-full min-w-0 px-3 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle text-sm"
             >
               <option value="all">All Repositories</option>
               {repositories.map(repo => (
@@ -203,7 +203,7 @@ export const Requirements = () => {
           </div>
 
           {/* Search */}
-          <div className="flex-1 min-w-[200px] relative">
+          <div className="relative min-w-0 flex-1 sm:min-w-[200px]">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-muted" />
             <input
               type="text"
@@ -218,7 +218,7 @@ export const Requirements = () => {
           <select
             value={statusFilter}
             onChange={(e) => setStatusFilter(e.target.value)}
-            className="px-3 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle text-sm"
+            className="w-full min-w-0 px-3 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle text-sm sm:w-auto"
           >
             <option value="all">All Statuses</option>
             <option value="verified">Verified</option>
@@ -231,7 +231,7 @@ export const Requirements = () => {
           <select
             value={sourceFilter}
             onChange={(e) => setSourceFilter(e.target.value)}
-            className="px-3 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle text-sm"
+            className="w-full min-w-0 px-3 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle text-sm sm:w-auto"
           >
             <option value="all">All Sources</option>
             <option value="jira">Jira</option>
@@ -244,7 +244,7 @@ export const Requirements = () => {
 
       {/* Requirement Cards */}
       {filteredRequirements.length === 0 ? (
-        <div className="card p-12 text-center">
+        <div className="card p-6 text-center sm:p-12">
           <FileText className="w-16 h-16 text-dark-muted/30 mx-auto mb-4" />
           <h3 className="text-lg font-semibold mb-2">No Requirements Found</h3>
           <p className="text-dark-muted text-sm">
@@ -263,10 +263,10 @@ export const Requirements = () => {
             return (
               <div
                 key={req.id}
-                className="card p-5 hover:border-accent-middle/30 hover:shadow-lg hover:shadow-accent-start/5 transition-all duration-300 cursor-pointer group"
+                className="card min-w-0 p-4 hover:border-accent-middle/30 hover:shadow-lg hover:shadow-accent-start/5 transition-all duration-300 cursor-pointer group sm:p-5"
                 onClick={() => navigate(`/requirements/${req.id}`)}
               >
-                <div className="flex items-start justify-between gap-3">
+                <div className="flex min-w-0 items-start justify-between gap-2 sm:gap-3">
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       {getSourceIcon(req.source)}
@@ -309,7 +309,7 @@ export const Requirements = () => {
                     </div>
                   </div>
 
-                  <div className="flex flex-col items-end gap-2 flex-shrink-0">
+                  <div className="flex shrink-0 flex-col items-end gap-2">
                     <StatusBadge status={status} size="sm" />
                     {ver && (
                       <div className="text-right">

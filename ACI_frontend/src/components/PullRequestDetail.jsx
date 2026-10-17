@@ -101,7 +101,7 @@ export default function PullRequestDetail() {
 
   if (error || !pr) {
     return (
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <button
           onClick={() => navigate('/pull-requests')}
           className="flex items-center gap-2 text-sm text-gray-400 hover:text-white mb-6"
@@ -123,9 +123,9 @@ export default function PullRequestDetail() {
   const latestVerification = verifications.length > 0 ? verifications[0] : null;
 
   return (
-    <div className="p-6 max-w-6xl mx-auto">
+    <div className="mx-auto min-w-0 max-w-6xl p-0 sm:p-2">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="mb-6 flex flex-col items-stretch justify-between gap-3 sm:flex-row sm:items-center">
         <button
           onClick={() => navigate('/pull-requests')}
           className="flex items-center gap-2 text-sm text-gray-400 hover:text-white"
@@ -135,7 +135,7 @@ export default function PullRequestDetail() {
 
         <button
           onClick={handleStartVerification}
-          className="flex items-center gap-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm font-medium"
+          className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium hover:bg-blue-700"
         >
           <Plus className="w-4 h-4" />
           Start Verification
@@ -143,14 +143,14 @@ export default function PullRequestDetail() {
       </div>
 
       {/* PR Header */}
-      <div className="bg-dark-card border border-dark-border rounded-xl p-6 mb-6">
+      <div className="mb-6 min-w-0 rounded-xl border border-dark-border bg-dark-card p-4 sm:p-6">
         <div className="flex items-start gap-4">
           <div className="mt-1">
             <GitPullRequest className="w-8 h-8 text-purple-400" />
           </div>
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-3 mb-2">
-              <span className="text-xl font-semibold text-white">
+            <div className="mb-2 flex flex-wrap items-center gap-2 sm:gap-3">
+              <span className="break-words text-lg font-semibold text-white sm:text-xl">
                 #{pr.number} {pr.title}
               </span>
               <StatusBadge status={pr.state} />
@@ -165,8 +165,8 @@ export default function PullRequestDetail() {
                 {pr.author}
               </div>
               <div className="flex items-center gap-1.5">
-                <GitBranch className="w-4 h-4" />
-                {pr.source_branch} → {pr.target_branch}
+                <GitBranch className="w-4 h-4 shrink-0" />
+                <span className="break-all">{pr.source_branch} → {pr.target_branch}</span>
               </div>
               <div className="flex items-center gap-1.5">
                 <Calendar className="w-4 h-4" />
@@ -178,8 +178,8 @@ export default function PullRequestDetail() {
       </div>
 
       {/* Verification Summary */}
-      <div className="bg-dark-card border border-dark-border rounded-xl p-6 mb-6">
-        <div className="flex items-center justify-between mb-4">
+      <div className="mb-6 min-w-0 rounded-xl border border-dark-border bg-dark-card p-4 sm:p-6">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold">Verification Status</h2>
           {latestVerification && (
             <StatusBadge status={latestVerification.status} />
@@ -232,7 +232,7 @@ export default function PullRequestDetail() {
       </div>
 
       {/* Commits */}
-      <div className="bg-dark-card border border-dark-border rounded-xl p-6 mb-6">
+      <div className="mb-6 min-w-0 rounded-xl border border-dark-border bg-dark-card p-4 sm:p-6">
         <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <FileText className="w-5 h-5" /> Commits ({commits.length})
         </h2>
@@ -246,7 +246,7 @@ export default function PullRequestDetail() {
                 <div className="font-mono text-sm text-gray-400 mb-1">
                   {commit.sha?.substring(0, 8)}
                 </div>
-                <div className="text-white mb-2">{commit.message}</div>
+                <div className="mb-2 break-words text-white">{commit.message}</div>
                 <div className="text-xs text-gray-500">
                   {commit.author} • {commit.committed_at ? new Date(commit.committed_at).toLocaleString() : ''}
                 </div>
@@ -254,8 +254,8 @@ export default function PullRequestDetail() {
                 {commit.changed_files && commit.changed_files.length > 0 && (
                   <div className="mt-3 pl-2 border-l border-dark-border">
                     {commit.changed_files.map((file, fIdx) => (
-                      <div key={fIdx} className="text-sm flex justify-between py-0.5">
-                        <span className="text-gray-300 truncate">{file.filename}</span>
+                      <div key={fIdx} className="flex min-w-0 justify-between gap-3 py-0.5 text-sm">
+                        <span className="min-w-0 break-all text-gray-300">{file.filename}</span>
                         <span className="text-xs text-gray-500 ml-2 whitespace-nowrap">
                           {file.status} {file.additions > 0 && `+${file.additions}`} {file.deletions > 0 && `-${file.deletions}`}
                         </span>
@@ -271,7 +271,7 @@ export default function PullRequestDetail() {
 
       {/* Verifications List */}
       {verifications.length > 0 && (
-        <div className="bg-dark-card border border-dark-border rounded-xl p-6">
+        <div className="min-w-0 rounded-xl border border-dark-border bg-dark-card p-4 sm:p-6">
           <h2 className="text-lg font-semibold mb-4">Verifications</h2>
           <div className="space-y-3">
             {verifications.map((v) => (
@@ -280,8 +280,8 @@ export default function PullRequestDetail() {
                 onClick={() => navigate(`/verifications/${v.id}`)}
                 className="border border-dark-border rounded-lg p-4 hover:border-blue-500/50 cursor-pointer transition-colors"
               >
-                <div className="flex items-center justify-between">
-                  <div>
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <div className="font-medium text-white">Verification #{v.id}</div>
                     <div className="text-sm text-gray-400 line-clamp-2">{v.summary}</div>
                   </div>

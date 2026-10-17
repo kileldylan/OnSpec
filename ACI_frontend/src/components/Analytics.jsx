@@ -75,13 +75,13 @@ export const Analytics = () => {
   }
 
   return (
-    <div className="space-y-6 animate-slide-up">
-      <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold flex items-center gap-2">
+    <div className="min-w-0 space-y-6 animate-slide-up">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <h2 className="text-xl font-bold flex items-center gap-2 sm:text-2xl">
           <TrendingUp className="w-6 h-6 text-accent-middle" />
           Analytics
         </h2>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <select
             value={timeRange}
             onChange={(e) => setTimeRange(e.target.value)}
@@ -98,9 +98,9 @@ export const Analytics = () => {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2 sm:gap-6">
         {/* Trend Chart */}
-        <div className="card p-6">
+        <div className="card min-w-0 p-4 sm:p-6">
           <h3 className="text-lg font-semibold mb-4">Verification Trend</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -126,7 +126,7 @@ export const Analytics = () => {
         </div>
 
         {/* Distribution Chart */}
-        <div className="card p-6">
+        <div className="card min-w-0 p-4 sm:p-6">
           <h3 className="text-lg font-semibold mb-4">Status Distribution</h3>
           <div className="h-64">
             <ResponsiveContainer width="100%" height="100%">

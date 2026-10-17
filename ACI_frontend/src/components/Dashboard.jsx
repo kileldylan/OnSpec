@@ -423,7 +423,7 @@ export const Dashboard = () => {
   /* ------------------------------------------------------------------------ */
 
   return (
-    <div className="space-y-8 animate-slide-up">
+    <div className="min-w-0 space-y-6 animate-slide-up sm:space-y-8">
 
       {/* ------------------------------------------------------------------ */}
       {/* Header                                                             */}
@@ -438,7 +438,7 @@ export const Dashboard = () => {
             </div>
 
             <div>
-              <h1 className="text-3xl font-bold gradient-text">
+              <h1 className="text-2xl font-bold gradient-text sm:text-3xl">
                 ACI Dashboard
               </h1>
 
@@ -460,7 +460,7 @@ export const Dashboard = () => {
         </div>
 
 
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
 
           {repositories.length > 0 && (
             <div className="hidden md:flex items-center gap-2 px-3 py-2 rounded-xl bg-dark-card border border-dark-border">
@@ -498,13 +498,13 @@ export const Dashboard = () => {
       {/* Main decision banner                                               */}
       {/* ------------------------------------------------------------------ */}
 
-      <div className="relative overflow-hidden rounded-2xl border border-accent-middle/20 bg-accent-start/5 p-6">
+      <div className="relative min-w-0 overflow-hidden rounded-2xl border border-accent-middle/20 bg-accent-start/5 p-4 sm:p-6">
 
         <div className="absolute -right-10 -top-10 w-40 h-40 rounded-full bg-accent-middle/5 blur-3xl" />
 
         <div className="relative flex flex-col lg:flex-row lg:items-center lg:justify-between gap-5">
 
-          <div className="flex items-start gap-4">
+          <div className="flex min-w-0 items-start gap-3 sm:gap-4">
 
             <div className="p-3 rounded-xl bg-accent-middle/10">
               <Target className="w-6 h-6 text-accent-middle" />
@@ -515,7 +515,7 @@ export const Dashboard = () => {
                 Delivery Verification
               </p>
 
-              <h2 className="text-xl font-semibold mt-1">
+              <h2 className="mt-1 text-lg font-semibold sm:text-xl">
                 ACI checks what was requested against what was delivered.
               </h2>
 
@@ -530,7 +530,7 @@ export const Dashboard = () => {
 
           <button
             onClick={() => navigate('/verifications')}
-            className="flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-accent-middle/10 text-accent-middle hover:bg-accent-middle/20 transition-colors whitespace-nowrap"
+            className="flex w-full items-center justify-center gap-2 rounded-xl bg-accent-middle/10 px-4 py-2.5 text-accent-middle transition-colors hover:bg-accent-middle/20 sm:w-auto sm:whitespace-nowrap"
           >
             Review deliveries
 
@@ -609,7 +609,7 @@ export const Dashboard = () => {
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
 
-        <div className="card p-5 lg:col-span-2">
+        <div className="card min-w-0 p-4 sm:p-5 lg:col-span-2">
 
           <div className="flex items-center justify-between mb-5">
 
@@ -704,7 +704,7 @@ export const Dashboard = () => {
 
         {/* Workspace stats */}
 
-        <div className="card p-5">
+        <div className="card min-w-0 p-4 sm:p-5">
 
           <div className="flex items-center gap-2 mb-5">
             <Zap className="w-4 h-4 text-accent-middle" />
@@ -1400,7 +1400,7 @@ export const Dashboard = () => {
       {/* Product explanation                                                 */}
       {/* ------------------------------------------------------------------ */}
 
-      <div className="rounded-2xl border border-dark-border bg-dark-card/60 p-6">
+      <div className="min-w-0 rounded-2xl border border-dark-border bg-dark-card/60 p-4 sm:p-6">
 
         <div className="flex flex-col md:flex-row md:items-center gap-5">
 
@@ -1428,7 +1428,7 @@ export const Dashboard = () => {
 
           <button
             onClick={() => navigate('/requirements')}
-            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dark-border hover:border-accent-middle/40 transition-colors whitespace-nowrap"
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-dark-border px-4 py-2.5 transition-colors hover:border-accent-middle/40 sm:w-auto sm:whitespace-nowrap"
           >
             Explore requirements
 

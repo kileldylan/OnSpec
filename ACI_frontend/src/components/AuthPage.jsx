@@ -59,17 +59,17 @@ const AuthForm = ({ title, subtitle, submitLabel, form, setForm, submit, submitt
     : [['username', 'Username', 'text'], ['email', 'Work email', 'email'], ['password', 'Password', 'password'], ['password_confirm', 'Confirm password', 'password']];
 
   return (
-    <main className="min-h-screen bg-dark-bg text-dark-text flex items-center justify-center px-5 py-12 bg-grid-pattern">
+    <main className="min-h-[100svh] bg-dark-bg text-dark-text flex items-center justify-center px-4 py-8 sm:px-5 sm:py-12 bg-grid-pattern">
       <section className="w-full max-w-md animate-slide-up">
         <div className="mb-8 flex items-center gap-3">
           <div className="rounded-xl bg-accent-middle/15 p-3"><Shield className="h-7 w-7 text-accent-middle" /></div>
           <div><p className="text-lg font-bold tracking-wide">ACI</p><p className="text-xs uppercase tracking-[0.2em] text-dark-muted">Assurance control</p></div>
         </div>
-        <div className="card p-8">
-          <div className="mb-7"><p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-accent-middle">Secure workspace</p><h1 className="text-3xl font-bold tracking-tight">{title}</h1><p className="mt-2 text-sm text-dark-muted">{subtitle}</p></div>
+        <div className="card p-5 sm:p-8">
+          <div className="mb-7"><p className="mb-2 text-xs font-semibold uppercase tracking-[0.18em] text-accent-middle">Secure workspace</p><h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1><p className="mt-2 text-sm text-dark-muted">{subtitle}</p></div>
           <form onSubmit={submit} className="space-y-4">
             {fields.map(([name, label, type]) => (
-              <label key={name} className="block"><span className="mb-2 block text-sm font-medium">{label}</span><input required className={inputClass} type={type} value={form[name]} onChange={(event) => setForm({ ...form, [name]: event.target.value })} autoComplete={name.includes('password') ? 'new-password' : name} /></label>
+              <label key={name} className="block"><span className="mb-2 block text-sm font-medium">{label}</span><input required className={inputClass} type={type} value={form[name]} onChange={(event) => setForm({ ...form, [name]: event.target.value })} autoComplete={name === 'password_confirm' ? 'new-password' : name === 'password' && !login ? 'new-password' : name === 'password' ? 'current-password' : name} /></label>
             ))}
             <button disabled={submitting} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-accent-middle px-4 py-3 text-sm font-semibold text-white transition hover:bg-accent-end disabled:cursor-not-allowed disabled:opacity-60" type="submit">{submitting ? 'Please wait...' : submitLabel}<ArrowRight className="h-4 w-4" /></button>
           </form>

@@ -136,7 +136,7 @@ export const VerificationList = () => {
   }
 
   return (
-    <div className="space-y-6 animate-slide-up">
+    <div className="min-w-0 space-y-6 animate-slide-up">
       {/* Header */}
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
         <div>
@@ -148,7 +148,7 @@ export const VerificationList = () => {
             {pagination.total} verifications across all requirements
           </p>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <button
             onClick={handleProcessQueued}
             disabled={processingQueued}
@@ -188,12 +188,12 @@ export const VerificationList = () => {
             </div>
           </form>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
             {/* Status Filter */}
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value)}
-              className="px-4 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle transition-colors text-sm"
+              className="w-full min-w-0 px-3 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle transition-colors text-sm sm:w-auto sm:px-4"
             >
               {statusOptions.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -204,7 +204,7 @@ export const VerificationList = () => {
             <select
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value)}
-              className="px-4 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle transition-colors text-sm"
+              className="w-full min-w-0 px-3 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle transition-colors text-sm sm:w-auto sm:px-4"
             >
               {sortOptions.map(opt => (
                 <option key={opt.value} value={opt.value}>{opt.label}</option>
@@ -216,7 +216,7 @@ export const VerificationList = () => {
 
       {/* Verification Cards */}
       {verifications.length === 0 ? (
-        <div className="card p-12 text-center">
+        <div className="card p-6 text-center sm:p-12">
           <div className="max-w-md mx-auto">
             <FileCode className="w-16 h-16 text-dark-muted/30 mx-auto mb-4" />
             <h3 className="text-lg font-semibold mb-2">No Verifications Found</h3>
@@ -236,7 +236,7 @@ export const VerificationList = () => {
                 key={ver.id}
                 onClick={() => navigate(`/verifications/${ver.id}`)}
                 className={clsx(
-                  'card p-6 cursor-pointer transition-all duration-300',
+                  'card min-w-0 p-4 cursor-pointer transition-all duration-300 sm:p-6',
                   'hover:border-accent-middle/30 hover:shadow-lg hover:shadow-accent-start/5',
                   'group'
                 )}
@@ -276,7 +276,7 @@ export const VerificationList = () => {
                   </div>
 
                   {/* Stats */}
-                  <div className="flex items-center gap-6">
+                  <div className="flex items-center justify-between gap-4 sm:justify-start sm:gap-6">
                     {ver.confidence && (
                       <div className="text-center">
                         <div className="text-sm font-medium text-dark-text">
@@ -320,12 +320,12 @@ export const VerificationList = () => {
 
       {/* Pagination */}
       {pagination.total > pagination.pageSize && (
-        <div className="flex items-center justify-between">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-sm text-dark-muted">
             Showing {((pagination.page - 1) * pagination.pageSize) + 1} - 
             {Math.min(pagination.page * pagination.pageSize, pagination.total)} of {pagination.total}
           </p>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={() => setPagination(prev => ({ ...prev, page: prev.page - 1 }))}
               disabled={pagination.page === 1}

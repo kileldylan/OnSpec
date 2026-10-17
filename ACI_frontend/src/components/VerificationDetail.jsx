@@ -69,10 +69,10 @@ export const VerificationDetail = () => {
   const satisfiedCount = criteria.filter((criterion) => criterion.status === 'satisfied').length;
 
   return (
-    <div className="space-y-6 animate-slide-up">
-      <div className="flex items-center justify-between gap-4">
+    <div className="min-w-0 space-y-6 animate-slide-up">
+      <div className="flex flex-col items-start justify-between gap-3 sm:flex-row sm:items-center sm:gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Verification #{verification.id}</h1>
+          <h1 className="text-xl font-bold sm:text-2xl">Verification #{verification.id}</h1>
           <p className="text-dark-muted mt-1">
             {verification.requirement?.title || 'No title'}
           </p>
@@ -80,9 +80,9 @@ export const VerificationDetail = () => {
         <StatusBadge status={verification.status} size="lg" />
       </div>
 
-      <div className="card p-6">
+      <div className="card min-w-0 p-4 sm:p-6">
         <h2 className="text-lg font-semibold mb-4">Decision</h2>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <p className="text-sm text-dark-muted">Requirement</p>
             <p className="font-medium">{verification.requirement?.external_id || 'N/A'}</p>
@@ -112,7 +112,7 @@ export const VerificationDetail = () => {
         )}
       </div>
 
-      <div className="card p-6">
+      <div className="card min-w-0 p-4 sm:p-6">
         <div className="flex items-center justify-between gap-3 mb-4">
           <h2 className="text-lg font-semibold">Acceptance Criteria</h2>
           {criteria.length > 0 && (

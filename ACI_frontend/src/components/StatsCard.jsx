@@ -5,13 +5,13 @@ export const StatsCard = ({ title, value, icon: Icon, trend, color, onClick }) =
     <div 
       onClick={onClick}
       className={clsx(
-        'card p-6 cursor-pointer transition-all duration-300',
+        'card min-w-0 p-4 cursor-pointer transition-all duration-300 sm:p-6',
         'hover:border-accent-middle/30 hover:shadow-lg hover:shadow-accent-start/5',
         'group'
       )}
     >
-      <div className="flex items-start justify-between">
-        <div className="space-y-2">
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0 space-y-2">
           <p className="text-dark-muted text-sm font-medium">{title}</p>
           <p className="text-3xl font-bold text-dark-text">{value}</p>
           {trend && (

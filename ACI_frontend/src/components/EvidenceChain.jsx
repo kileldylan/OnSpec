@@ -61,7 +61,7 @@ export const EvidenceChain = ({ evidence, onEvidenceClick }) => {
     <div className="space-y-4">
       {/* Timeline */}
       <div className="relative">
-        <div className="absolute left-6 top-0 bottom-0 w-px bg-dark-border"></div>
+        <div className="absolute left-4 top-0 bottom-0 w-px bg-dark-border sm:left-6"></div>
         
         {evidence.map((item, index) => {
           const Icon = evidenceIcons[item.evidence_type] || File;
@@ -69,10 +69,10 @@ export const EvidenceChain = ({ evidence, onEvidenceClick }) => {
           const isLast = index === evidence.length - 1;
 
           return (
-            <div key={item.id || index} className="relative pl-16 pb-6">
+            <div key={item.id || index} className="relative pb-6 pl-10 sm:pl-16">
               {/* Timeline dot */}
               <div className={clsx(
-                'absolute left-4 w-4 h-4 rounded-full border-2 transform -translate-x-1/2 mt-1.5',
+                'absolute left-4 mt-1.5 h-4 w-4 -translate-x-1/2 transform rounded-full border-2 sm:left-6',
                 item.status === 'verified' || item.status === 'satisfied' 
                   ? 'bg-verified border-verified' 
                   : item.status === 'pending'
@@ -83,13 +83,13 @@ export const EvidenceChain = ({ evidence, onEvidenceClick }) => {
               {/* Evidence card */}
               <div 
                 className={clsx(
-                  'card p-4 cursor-pointer transition-all duration-300',
+                  'card min-w-0 p-3 cursor-pointer transition-all duration-300 sm:p-4',
                   'hover:border-accent-middle/20',
                   'group'
                 )}
                 onClick={() => toggleExpand(item.id)}
               >
-                <div className="flex items-start justify-between">
+                <div className="flex min-w-0 items-start justify-between gap-2">
                   <div className="flex items-start gap-3 min-w-0">
                     <div className={clsx(
                       'p-2 rounded-lg border flex-shrink-0',
@@ -98,8 +98,8 @@ export const EvidenceChain = ({ evidence, onEvidenceClick }) => {
                       <Icon className="w-4 h-4" />
                     </div>
                     <div className="min-w-0">
-                      <div className="flex items-center gap-3">
-                        <span className="font-medium text-sm truncate">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2 sm:gap-3">
+                        <span className="min-w-0 break-words text-sm font-medium sm:truncate">
                           {item.description || 'Evidence item'}
                         </span>
                         <StatusBadge status={item.status} size="sm" />
