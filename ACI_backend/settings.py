@@ -59,15 +59,21 @@ SECRET_KEY = env("SECRET_KEY")
 
 DEBUG = env.bool("DEBUG", default=False)
 
-ALLOWED_HOSTS = env.list(
-    "ALLOWED_HOSTS",
-    default=[
-        "localhost", 
-        "127.0.0.1", 
-        "onspec.onrender.com", 
-        ".vercel.app"        
-    ],
-)
+# Safely get hosts from environment, defaulting to an empty list
+ALLOWED_HOSTS = env.list("ALLOWED_HOSTS", default=[])
+
+# Always include these, no matter what the environment variable says
+REQUIRED_HOSTS = [
+    "localhost",
+    "127.0.0.1",
+    "onspec.onrender.com",
+    ".onrender.com",      # Good for Render health checks
+    ".vercel.app",
+]
+
+for host in REQUIRED_HOSTS:
+    if host not in ALLOWED_HOSTS:
+        ALLOWED_HOSTS.append(host)
 
 # Dev tunnels (ngrok / cloudflared). A leading-dot entry is a subdomain wildcard
 # in Django, so ".ngrok-free.app" matches "abc123.ngrok-free.app".
