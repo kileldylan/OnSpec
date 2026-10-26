@@ -16,6 +16,7 @@ import Requirements from './components/Requirements';
 import ProtectedRoute from './components/ProtectedRoute';
 import { Login, Register } from './components/AuthPage';
 import { AuthProvider } from './context/AuthContext';
+import { Analytics as VercelAnalytics } from '@vercel/analytics/react';
 
 function EvidencePage() {
   const [evidence, setEvidence] = React.useState([]);
@@ -76,6 +77,7 @@ function App() {
             </Route>
             </Route>
           </Routes>
+          <VercelAnalytics />
         </BrowserRouter>
         </AuthProvider>
       </ThemeProvider>
