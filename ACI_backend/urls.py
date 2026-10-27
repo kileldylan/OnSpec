@@ -17,10 +17,13 @@ Including another URLconf
 from django.contrib import admin
 from django.urls import path, include
 
+from ACI_backend.ACIApp.views import health_check
 from ACI_backend.integrations.github.webhooks import github_webhook
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path("health/", health_check, name="health-check"),
+    path("health", health_check, name="health-check-no-slash"),
     path(
         "api/",
         include("ACI_backend.api.urls"),
