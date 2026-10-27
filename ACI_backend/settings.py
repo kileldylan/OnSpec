@@ -26,6 +26,16 @@ environ.Env.read_env(BACKEND_DIR / ".env")
 GITHUB_WEBHOOK_SECRET = env("GITHUB_WEBHOOK_SECRET")
 GITHUB_ACCESS_TOKEN = env("GITHUB_ACCESS_TOKEN")
 GITHUB_API_TIMEOUT = env.int("GITHUB_API_TIMEOUT", default=15)
+GITHUB_OAUTH_CLIENT_ID = env("GITHUB_OAUTH_CLIENT_ID", default="")
+GITHUB_OAUTH_CLIENT_SECRET = env("GITHUB_OAUTH_CLIENT_SECRET", default="")
+GITHUB_OAUTH_REDIRECT_URI = env(
+    "GITHUB_OAUTH_REDIRECT_URI",
+    default="https://on-spec.vercel.app/api/auth/github/callback/",
+)
+FRONTEND_URL = env(
+    "FRONTEND_URL",
+    default="https://on-spec.vercel.app",
+).rstrip("/")
 JIRA_BASE_URL = env("JIRA_BASE_URL", default="").rstrip("/")
 JIRA_EMAIL = env("JIRA_EMAIL", default="")
 JIRA_API_TOKEN = env("JIRA_API_TOKEN", default="")

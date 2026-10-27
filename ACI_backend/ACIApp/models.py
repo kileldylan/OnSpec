@@ -1,6 +1,21 @@
 from django.conf import settings
 from django.db import models
 
+
+class GitHubAccount(models.Model):
+    user = models.OneToOneField(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="github_account",
+    )
+    github_id = models.BigIntegerField(unique=True)
+    github_login = models.CharField(max_length=255)
+    connected_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.github_login} ({self.user})"
+
+
 class Repository(models.Model):
     """A GitHub repository connected to ACI."""
 

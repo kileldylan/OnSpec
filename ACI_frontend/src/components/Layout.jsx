@@ -10,14 +10,17 @@ import {
   FileCode,
   FileText,
   LogOut,
+  GitBranch,
   Menu,
   X,
   TrendingUp,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { clsx } from 'clsx';
+import toast from 'react-hot-toast';
+import { aciApi } from '../api/aci';
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
@@ -33,6 +36,20 @@ const Navigation = ({ mobile = false, onNavigate }) => {
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
+  const [connectingGitHub, setConnectingGitHub] = useState(false);
+
+  const connectGitHub = async () => {
+    try {
+      setConnectingGitHub(true);
+      const response = await aciApi.getGitHubAuthorizationUrl();
+      window.location.assign(response.data.authorization_url);
+    } catch (error) {
+      toast.error(
+        error.response?.data?.detail || 'Unable to connect your GitHub account.'
+      );
+      setConnectingGitHub(false);
+    }
+  };
 
   return (
     <nav
@@ -89,6 +106,21 @@ const Navigation = ({ mobile = false, onNavigate }) => {
       {/* Footer */}
       <div className="border-t border-dark-border pt-4 space-y-3">
         <button
+          type="button"
+          onClick={connectGitHub}
+          disabled={connectingGitHub}
+          className="w-full min-w-0 flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-dark-hover transition-colors text-dark-muted hover:text-dark-text disabled:opacity-60"
+        >
+          <GitBranch className="w-5 h-5" />
+          <span className="min-w-0 truncate text-left text-sm font-medium">
+            {connectingGitHub
+              ? 'Connecting GitHub...'
+              : user?.github_login
+                ? `GitHub @${user.github_login}`
+                : 'Connect GitHub'}
+          </span>
+        </button>
+        <button
           onClick={toggleTheme}
           className="w-full flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-dark-hover transition-colors text-dark-muted hover:text-dark-text"
         >
@@ -130,6 +162,29 @@ const Navigation = ({ mobile = false, onNavigate }) => {
 
 export const Layout = () => {
   const [menuOpen, setMenuOpen] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const result = new URLSearchParams(location.search).get('github');
+    if (!result) return;
+
+    const messages = {
+      connected: ['GitHub account connected.', 'success'],
+      already_linked: ['That GitHub account is linked to another ACI user.', 'error'],
+      account_mismatch: ['This ACI user is already linked to a different GitHub account.', 'error'],
+      cancelled: ['GitHub account connection was cancelled.', 'error'],
+      failed: ['GitHub account connection failed. Please try again.', 'error'],
+      invalid_state: ['GitHub connection expired. Please try again.', 'error'],
+      login_required: ['Sign in to ACI before connecting GitHub.', 'error'],
+    };
+    const [message, type] = messages[result] || [
+      'GitHub account connection failed.',
+      'error',
+    ];
+    toast[type](message);
+    navigate(`${location.pathname}${location.hash}`, { replace: true });
+  }, [location.hash, location.pathname, location.search, navigate]);
 
   return (
     <div className="min-h-screen min-w-0 overflow-x-hidden bg-dark-bg">

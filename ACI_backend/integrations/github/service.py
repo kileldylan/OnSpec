@@ -9,6 +9,9 @@ from ACI_backend.ACIApp.models import (
     PullRequest,
     Repository,
 )
+from ACI_backend.integrations.github.accounts import (
+    link_repository_github_members,
+)
 from ACI_backend.integrations.github.client import GitHubClient
 from ACI_backend.integrations.jira.client import JiraAPIError, JiraClient
 from ACI_backend.integrations.jira.service import (
@@ -105,6 +108,7 @@ def process_pull_request_event(payload):
             "updated_at": pull_request_data["updated_at"],
         },
     )
+    link_repository_github_members(repository)
 
     ingest_jira_links_for_pull_request(
         pull_request=pull_request,

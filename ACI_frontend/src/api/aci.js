@@ -49,6 +49,7 @@ export const aciApi = {
       headers: { 'X-CSRFToken': csrfToken },
     }),
   getCurrentUser: () => api.get('/auth/me/'),
+  getGitHubAuthorizationUrl: () => api.get('/auth/github/connect/'),
 
   // ============ REPOSITORIES ============
   getRepositories: (params = {}) => 
