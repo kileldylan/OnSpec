@@ -15,6 +15,13 @@ const api = axios.create({
   xsrfHeaderName: 'X-CSRFToken',
 });
 
+const postWithCsrf = async (url, data) => {
+  const csrfResponse = await api.get('/auth/csrf/');
+  return api.post(url, data, {
+    headers: { 'X-CSRFToken': csrfResponse.data.csrfToken },
+  });
+};
+
 // Response interceptor for error handling
 api.interceptors.response.use(
   (response) => response,
@@ -70,7 +77,7 @@ export const aciApi = {
     api.get(`/repositories/${repoId}/pull-requests/${prId}/`),
 
   startVerification: (repoId, data) => 
-    api.post(`/repositories/${repoId}/start-verification/`, data),
+    postWithCsrf(`/repositories/${repoId}/start-verification/`, data),
 
   // ============ REQUIREMENTS ============
   getRequirements: (params = {}) => 
@@ -87,7 +94,7 @@ export const aciApi = {
     api.get(`/verifications/${id}/`),
 
   processQueuedVerifications: (data = {}) =>
-    api.post('/verifications/process-queued/', data),
+    postWithCsrf('/verifications/process-queued/', data),
   
   // ============ VERIFICATION RUNS ============
   getVerificationRuns: (params = {}) => 

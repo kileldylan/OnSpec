@@ -515,6 +515,38 @@ def test_verification_detail_renders_requirement_criteria_even_before_results_ex
 
 
 @pytest.mark.django_db
+def test_verification_worker_accepts_session_request_with_csrf_token():
+    user = get_user_model().objects.create_user(
+        username="csrf-verification-worker",
+        email="csrf-worker@example.com",
+        password="strong-password-123",
+    )
+    client = APIClient(enforce_csrf_checks=True)
+    client.force_login(user)
+
+    csrf_response = client.get(reverse("auth-csrf"))
+    assert csrf_response.status_code == 200
+    csrf_token = csrf_response.json()["csrfToken"]
+
+    rejected_response = client.post(
+        reverse("verification-process-queued"),
+        {"limit": 1},
+        format="json",
+    )
+    assert rejected_response.status_code == 403
+
+    response = client.post(
+        reverse("verification-process-queued"),
+        {"limit": 1},
+        format="json",
+        HTTP_X_CSRFTOKEN=csrf_token,
+    )
+
+    assert response.status_code == 200
+    assert response.json()["processed"] == 0
+
+
+@pytest.mark.django_db
 def test_verification_worker_can_process_queued_runs():
     user = get_user_model().objects.create_user(
         username="verification-worker",
