@@ -1,4 +1,5 @@
 from datetime import timedelta
+import logging
 import re
 from urllib.parse import quote
 
@@ -25,10 +26,18 @@ from ACI_backend.integrations.verification.criteria import (
     list_active_criteria,
 )
 from ACI_backend.integrations.github.client import GitHubClient
+from ACI_backend.integrations.github.client import GitHubAPIError
 from ACI_backend.integrations.verification.decisions import (
     create_delivery_decision,
 )
+from ACI_backend.integrations.verification.errors import (
+    LLMProviderError,
+    VerificationProcessingError,
+)
 from ACI_backend.integrations.verification.execution import execute_test_run
+
+
+logger = logging.getLogger(__name__)
 
 
 FINAL_VERIFICATION_STATUSES = {
@@ -1098,7 +1107,7 @@ def complete_reverification_run(
         ],
     )
 
-    run.status = "completed"
+    run.status = "failed" if status == "failed" else "completed"
     run.completed_at = timezone.now()
     run.save(update_fields=["status", "completed_at"])
     return verification
@@ -1144,10 +1153,26 @@ def process_next_reverification_run(
         pull_request=pull_request,
     )
     if source_evidence_collector is not None:
-        source_evidence_collector(
-            requirement=verification.requirement,
-            pull_request=pull_request,
-        )
+        try:
+            source_evidence_collector(
+                requirement=verification.requirement,
+                pull_request=pull_request,
+            )
+        except GitHubAPIError as error:
+            logger.exception(
+                "GitHub source collection failed for verification run %s.",
+                run.id,
+            )
+            complete_reverification_run(
+                run_id=run.id,
+                status="failed",
+                summary="GitHub source retrieval failed. See backend logs.",
+                confidence=0.0,
+            )
+            raise VerificationProcessingError(
+                run_id=run.id,
+                stage="GitHub source retrieval",
+            ) from error
     if test_runner is not None:
         execute_test_run(
             verification_run=run,
@@ -1159,21 +1184,37 @@ def process_next_reverification_run(
         status__in=["valid", "invalid"],
     ).order_by("id")
 
-    if evaluator is None:
-        conclusion = evaluate(
-            verification.requirement,
-            current_evidence,
+    try:
+        if evaluator is None:
+            conclusion = evaluate(
+                verification.requirement,
+                current_evidence,
+            )
+        else:
+            conclusion = evaluator.evaluate(
+                verification.requirement,
+                current_evidence,
+            )
+            validate_evaluator_conclusion(
+                requirement=verification.requirement,
+                evidence=current_evidence,
+                conclusion=conclusion,
+            )
+    except LLMProviderError as error:
+        logger.exception(
+            "LLM evaluation failed for verification run %s.",
+            run.id,
         )
-    else:
-        conclusion = evaluator.evaluate(
-            verification.requirement,
-            current_evidence,
+        complete_reverification_run(
+            run_id=run.id,
+            status="failed",
+            summary="LLM evaluation failed. See backend logs.",
+            confidence=0.0,
         )
-        validate_evaluator_conclusion(
-            requirement=verification.requirement,
-            evidence=current_evidence,
-            conclusion=conclusion,
-        )
+        raise VerificationProcessingError(
+            run_id=run.id,
+            stage="LLM evaluation",
+        ) from error
 
     # Run per-criterion analysis
     execute_criteria(

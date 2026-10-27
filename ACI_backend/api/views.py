@@ -1,3 +1,5 @@
+import logging
+
 from django.conf import settings
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
@@ -28,12 +30,18 @@ from ACI_backend.api.permissions import visible_repositories
 from ACI_backend.integrations.jira.client import JiraAPIError, JiraClient
 from ACI_backend.integrations.jira.service import ingest_jira_requirement
 from ACI_backend.integrations.verification.llm import create_openai_evaluator
+from ACI_backend.integrations.verification.errors import (
+    VerificationProcessingError,
+)
 from ACI_backend.integrations.verification.service import (
     collect_repository_code_evidence,
     process_next_reverification_run,
     recover_stuck_reverification_runs,
     start_initial_verification,
 )
+
+
+logger = logging.getLogger(__name__)
 
 
 class RepositoryViewSet(viewsets.ModelViewSet):
@@ -289,10 +297,21 @@ class VerificationViewSet(viewsets.ReadOnlyModelViewSet):
                 if settings.OPENAI_API_KEY
                 else None
             )
-            verification = process_next_reverification_run(
-                evaluator=evaluator,
-                source_evidence_collector=collect_repository_code_evidence,
-            )
+            try:
+                verification = process_next_reverification_run(
+                    evaluator=evaluator,
+                    source_evidence_collector=collect_repository_code_evidence,
+                )
+            except VerificationProcessingError as error:
+                logger.error("%s", error)
+                return Response(
+                    {
+                        "detail": str(error),
+                        "run_id": error.run_id,
+                        "stage": error.stage,
+                    },
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
             if verification is None:
                 break
 

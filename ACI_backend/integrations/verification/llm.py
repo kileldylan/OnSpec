@@ -7,10 +7,7 @@ from django.conf import settings
 from ACI_backend.integrations.verification.service import (
     validate_evaluator_conclusion,
 )
-
-
-class LLMProviderError(Exception):
-    """Raised when an LLM provider response cannot be used safely."""
+from ACI_backend.integrations.verification.errors import LLMProviderError
 
 
 class OpenAIProvider:

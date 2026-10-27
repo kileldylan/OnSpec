@@ -15,6 +15,11 @@ from ACI_backend.ACIApp.models import (
     VerificationRun,
 )
 from ACI_backend.integrations.github.service import process_github_evidence_event
+from ACI_backend.integrations.github.client import GitHubAPIError
+from ACI_backend.integrations.verification.errors import (
+    LLMProviderError,
+    VerificationProcessingError,
+)
 from ACI_backend.integrations.verification.service import (
     claim_reverification_run,
     complete_reverification_run,
@@ -247,6 +252,125 @@ def test_process_next_reverification_run_collects_fresh_code_evidence():
         evidence__status="valid",
     ).exists()
     assert process_next_reverification_run() is None
+
+
+@pytest.mark.django_db
+def test_github_source_failure_marks_run_failed_and_reports_stage():
+    repository = Repository.objects.create(
+        github_id=789013,
+        owner="kilel",
+        name="aci-demo-source-error",
+        full_name="kilel/aci-demo-source-error",
+    )
+    requirement = Requirement.objects.create(
+        repository=repository,
+        external_id="AUTH-8",
+        source="jira",
+        title="Users can authenticate",
+    )
+    pull_request = create_pull_request(
+        repository,
+        number=518,
+        sha="l" * 40,
+    )
+    commit = Commit.objects.create(
+        repository=repository,
+        pull_request=pull_request,
+        sha="m" * 40,
+        message="Update authentication",
+        author="kilel",
+        committed_at="2026-08-18T10:00:00Z",
+    )
+    changed_file = ChangedFile.objects.create(
+        commit=commit,
+        filename="README.md",
+        status="modified",
+    )
+    verification = Verification.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+        status="pending",
+    )
+    run = VerificationRun.objects.create(
+        verification=verification,
+        triggering_changed_file=changed_file,
+        reason="Initial verification.",
+    )
+
+    def failed_source_collection(**kwargs):
+        raise GitHubAPIError("GitHub API request failed.")
+
+    with pytest.raises(VerificationProcessingError) as error:
+        process_next_reverification_run(
+            source_evidence_collector=failed_source_collection,
+        )
+
+    assert error.value.run_id == run.id
+    assert error.value.stage == "GitHub source retrieval"
+    run.refresh_from_db()
+    verification.refresh_from_db()
+    assert run.status == "failed"
+    assert verification.status == "failed"
+    assert "See backend logs" in verification.summary
+
+
+@pytest.mark.django_db
+def test_llm_failure_marks_run_failed_and_reports_stage():
+    repository = Repository.objects.create(
+        github_id=789014,
+        owner="kilel",
+        name="aci-demo-llm-error",
+        full_name="kilel/aci-demo-llm-error",
+    )
+    requirement = Requirement.objects.create(
+        repository=repository,
+        external_id="AUTH-9",
+        source="jira",
+        title="Users can authenticate",
+    )
+    pull_request = create_pull_request(
+        repository,
+        number=519,
+        sha="n" * 40,
+    )
+    commit = Commit.objects.create(
+        repository=repository,
+        pull_request=pull_request,
+        sha="o" * 40,
+        message="Update authentication",
+        author="kilel",
+        committed_at="2026-08-18T10:00:00Z",
+    )
+    changed_file = ChangedFile.objects.create(
+        commit=commit,
+        filename="README.md",
+        status="modified",
+    )
+    verification = Verification.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+        status="pending",
+    )
+    run = VerificationRun.objects.create(
+        verification=verification,
+        triggering_changed_file=changed_file,
+        reason="Initial verification.",
+    )
+
+    class FailedEvaluator:
+        def evaluate(self, requirement, evidence):
+            raise LLMProviderError("Provider unavailable.")
+
+    with pytest.raises(VerificationProcessingError) as error:
+        process_next_reverification_run(evaluator=FailedEvaluator())
+
+    assert error.value.run_id == run.id
+    assert error.value.stage == "LLM evaluation"
+    run.refresh_from_db()
+    verification.refresh_from_db()
+    assert run.status == "failed"
+    assert verification.status == "failed"
+    assert "See backend logs" in verification.summary
 
 
 @pytest.mark.django_db
