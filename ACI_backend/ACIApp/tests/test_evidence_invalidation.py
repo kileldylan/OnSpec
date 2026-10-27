@@ -213,6 +213,11 @@ def test_process_next_reverification_run_collects_fresh_code_evidence():
         additions=10,
         deletions=8,
         changes=18,
+        patch=(
+            "@@ -1,3 +1,5 @@\n"
+            "+def authenticate_user(credentials):\n"
+            "+    return authentication_service.authenticate(credentials)"
+        ),
     )
     verification = Verification.objects.create(
         requirement=requirement,
@@ -232,7 +237,8 @@ def test_process_next_reverification_run_collects_fresh_code_evidence():
     run.refresh_from_db()
     assert verification.status == "partial"
     assert verification.summary == (
-        "Fresh code evidence was collected from PR #517. "
+        "Code evidence collected for PR #517. "
+        "Changes in 1 files: auth/service.py. "
         "Missing valid CI and test evidence."
     )
     assert run.status == "completed"
@@ -269,6 +275,17 @@ def test_evidence_policy_verifies_when_code_test_and_ci_are_valid():
             evidence_type=evidence_type,
             status="valid",
             description=f"Valid {evidence_type} evidence.",
+            metadata=(
+                {
+                    "filename": "src/auth.py",
+                    "evidence_role": "implementation",
+                    "snippet": "def authenticate_user(credentials):",
+                    "line_start": 12,
+                    "line_end": 12,
+                }
+                if evidence_type == "code"
+                else {}
+            ),
         )
 
     conclusion = evaluate_reverification_evidence(
@@ -279,7 +296,9 @@ def test_evidence_policy_verifies_when_code_test_and_ci_are_valid():
     assert conclusion["status"] == "verified"
     assert conclusion["confidence"] == 0.9
     assert conclusion["summary"] == (
-        "PR #18 has valid code, test, and CI evidence for this requirement."
+        "PR #18 has valid code, test, and CI evidence. "
+        "Changes in 1 files: src/auth.py. "
+        "(tests: Valid test evidence.; CI: Valid ci evidence.)"
     )
     assert len(conclusion["evidence"]) == 3
 
@@ -293,6 +312,47 @@ def test_evidence_policy_verifies_when_code_test_and_ci_are_valid():
     )
     assert stable_conclusion["status"] == "verified"
     assert stable_conclusion["evidence"]
+
+
+@pytest.mark.django_db
+def test_evidence_policy_does_not_count_documentation_as_code():
+    repository = Repository.objects.create(
+        github_id=345679,
+        owner="kilel",
+        name="aci-demo-docs",
+        full_name="kilel/aci-demo-docs",
+    )
+    requirement = Requirement.objects.create(
+        repository=repository,
+        external_id="AUTH-6",
+        source="jira",
+        title="Users can reset passwords",
+    )
+    pull_request = create_pull_request(
+        repository,
+        number=19,
+        sha="i" * 40,
+    )
+    documentation = Evidence.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+        evidence_type="code",
+        status="valid",
+        metadata={
+            "filename": "README.md",
+            "evidence_role": "documentation",
+            "snippet": "",
+        },
+    )
+
+    conclusion = evaluate_reverification_evidence(
+        requirement=requirement,
+        pull_request=pull_request,
+    )
+
+    assert conclusion["status"] == "unverified"
+    assert conclusion["confidence"] == 0.0
+    assert documentation in conclusion["evidence"]
 
 
 @pytest.mark.django_db

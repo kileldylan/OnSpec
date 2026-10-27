@@ -30,7 +30,14 @@ def create_evidence():
         evidence_type="code",
         status="valid",
         description="Authentication service exists.",
-        metadata={"filename": "auth/service.py"},
+        metadata={
+            "filename": "auth/service.py",
+            "evidence_role": "implementation",
+            "snippet": "def authenticate_user(credentials):",
+            "line_start": 18,
+            "line_end": 18,
+            "source_url": "https://github.com/acme/app/blob/abc/auth/service.py#L18-L18",
+        },
     )
     return requirement, [evidence]
 
@@ -46,7 +53,14 @@ def test_llm_request_contains_only_grounded_evidence():
         "type": "code",
         "status": "valid",
         "description": "Authentication service exists.",
-        "metadata": {"filename": "auth/service.py"},
+        "metadata": {
+            "filename": "auth/service.py",
+            "evidence_role": "implementation",
+            "snippet": "def authenticate_user(credentials):",
+            "line_start": 18,
+            "line_end": 18,
+            "source_url": "https://github.com/acme/app/blob/abc/auth/service.py#L18-L18",
+        },
         "commit_sha": None,
         "changed_file": None,
     }]

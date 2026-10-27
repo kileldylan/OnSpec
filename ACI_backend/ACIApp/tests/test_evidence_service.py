@@ -63,7 +63,11 @@ def test_ingest_changed_file_evidence_creates_code_evidence():
         additions=10,
         deletions=3,
         changes=13,
-        patch="@@ -1,3 +1,10 @@",
+        patch=(
+            "@@ -1,3 +1,5 @@\n"
+            "+def request_password_reset(email):\n"
+            "+    send_reset_email(email)"
+        ),
     )
 
     result = ingest_changed_file_evidence(
@@ -93,9 +97,77 @@ def test_ingest_changed_file_evidence_creates_code_evidence():
         "additions": 10,
         "deletions": 3,
         "changes": 13,
+        "evidence_role": "implementation",
+        "snippet": (
+            "def request_password_reset(email):\n"
+            "    send_reset_email(email)"
+        ),
+        "line_start": 1,
+        "line_end": 2,
+        "source_url": (
+            "https://github.com/kilel/aci-demo/blob/"
+            f"{'c' * 40}/users/views.py#L1-L2"
+        ),
     }
 
     assert Evidence.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_ingest_changed_file_evidence_marks_readme_as_documentation():
+    repository = Repository.objects.create(
+        github_id=123457,
+        owner="kilel",
+        name="aci-demo",
+        full_name="kilel/aci-demo",
+        default_branch="main",
+    )
+    pull_request = PullRequest.objects.create(
+        repository=repository,
+        github_id=987655,
+        number=2,
+        title="Document password reset",
+        author="kilel",
+        source_branch="docs/reset",
+        target_branch="main",
+        base_sha="b" * 40,
+        head_sha="a" * 40,
+        state="open",
+        is_merged=False,
+        created_at="2026-08-17T10:00:00Z",
+        updated_at="2026-08-17T10:00:00Z",
+    )
+    requirement = Requirement.objects.create(
+        repository=repository,
+        external_id="PROJ-124",
+        source="jira",
+        title="Add password reset",
+    )
+    commit = Commit.objects.create(
+        repository=repository,
+        pull_request=pull_request,
+        sha="d" * 40,
+        message="Document password reset",
+        author="kilel",
+        committed_at="2026-08-17T10:30:00Z",
+    )
+    ChangedFile.objects.create(
+        commit=commit,
+        filename="README.md",
+        status="modified",
+        additions=2,
+        changes=2,
+        patch="@@ -1 +1,3 @@\n+Password reset endpoint is available.",
+    )
+
+    evidence = ingest_changed_file_evidence(
+        requirement=requirement,
+        pull_request=pull_request,
+    )[0]
+
+    assert evidence.metadata["evidence_role"] == "documentation"
+    assert evidence.metadata["snippet"] == ""
+    assert "source_url" not in evidence.metadata
 
 
 @pytest.mark.django_db

@@ -42,7 +42,14 @@ class OpenAIProvider:
                         "role": "system",
                         "content": (
                             "Evaluate only the supplied evidence. Return JSON "
-                            "matching response_schema. Never invent evidence."
+                            "matching response_schema. Never invent evidence. "
+                            "For implementation claims, use only code evidence "
+                            "whose metadata evidence_role is implementation and "
+                            "whose metadata includes a non-empty added-code "
+                            "snippet. Documentation changes such as README files "
+                            "do not prove implementation. When describing code "
+                            "evidence, cite its exact filename, line range, and "
+                            "snippet from the supplied metadata."
                         ),
                     },
                     {
@@ -100,7 +107,10 @@ def build_evaluator_request(requirement, evidence):
         ],
         "response_schema": {
             "status": "verified|partial|unverified|failed",
-            "summary": "string",
+            "summary": (
+                "string; implementation claims cite the exact filename, "
+                "line range, and supplied code snippet"
+            ),
             "confidence": "number between 0 and 1",
             "evidence_ids": "array of supplied evidence ids",
         },

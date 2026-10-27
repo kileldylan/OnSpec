@@ -134,6 +134,13 @@ def test_execute_criteria_matches_current_evidence_to_expectations(requirement):
     changed_file = ChangedFile.objects.create(
         commit=commit,
         filename="accounts/reset.py",
+        additions=2,
+        changes=2,
+        patch=(
+            "@@ -1,0 +1,2 @@\n"
+            "+def reset_password(user):\n"
+            "+    return create_reset_token(user)"
+        ),
     )
     evidence = Evidence.objects.create(
         requirement=requirement,
@@ -142,6 +149,16 @@ def test_execute_criteria_matches_current_evidence_to_expectations(requirement):
         changed_file=changed_file,
         evidence_type="code",
         status="valid",
+        metadata={
+            "filename": "accounts/reset.py",
+            "evidence_role": "implementation",
+            "snippet": (
+                "def reset_password(user):\n"
+                "    return create_reset_token(user)"
+            ),
+            "line_start": 1,
+            "line_end": 2,
+        },
     )
 
     results = execute_criteria(
@@ -152,7 +169,54 @@ def test_execute_criteria_matches_current_evidence_to_expectations(requirement):
     assert len(results) == 1
     assert results[0].criterion == criterion
     assert results[0].status == "satisfied"
+    assert results[0].summary == (
+        "Relevant implementation changes in accounts/reset.py:1-2."
+    )
     assert results[0].evidence_links.get().evidence == evidence
+
+
+@pytest.mark.django_db
+def test_documentation_change_does_not_satisfy_implementation_criterion(requirement):
+    create_criterion(
+        requirement=requirement,
+        text="The reset endpoint is implemented.",
+    )
+    pull_request = PullRequest.objects.create(
+        repository=requirement.repository,
+        github_id=99005,
+        number=4,
+        title="Document reset endpoint",
+        author="aci",
+        source_branch="docs/reset",
+        target_branch="main",
+        base_sha="b" * 40,
+        head_sha="a" * 40,
+        created_at="2026-08-19T07:00:00Z",
+        updated_at="2026-08-19T07:00:00Z",
+    )
+    verification = Verification.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+    )
+    documentation = Evidence.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+        evidence_type="code",
+        status="valid",
+        metadata={
+            "filename": "README.md",
+            "evidence_role": "documentation",
+            "snippet": "",
+        },
+    )
+
+    results = execute_criteria(
+        verification=verification,
+        evidence=[documentation],
+    )
+
+    assert results[0].status == "missing"
+    assert results[0].evidence_links.count() == 0
 
 
 @pytest.mark.django_db

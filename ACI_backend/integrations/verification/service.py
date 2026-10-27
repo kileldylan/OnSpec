@@ -1,5 +1,7 @@
 from django.conf import settings
 from datetime import timedelta
+import re
+from urllib.parse import quote
 
 from django.db import transaction
 from django.utils import timezone
@@ -16,7 +18,10 @@ from ACI_backend.ACIApp.models import (
     VerificationEvidence,
     VerificationRun,
 )
-from ACI_backend.integrations.verification.criteria import execute_criteria
+from ACI_backend.integrations.verification.criteria import (
+    effective_evidence_type,
+    execute_criteria,
+)
 from ACI_backend.integrations.verification.decisions import (
     create_delivery_decision,
 )
@@ -44,6 +49,57 @@ DEFAULT_GITHUB_CI_CONTEXTS = {
     "codeql",
     "security",
 }
+
+DOCUMENTATION_EXTENSIONS = {".adoc", ".md", ".rst", ".txt"}
+TEST_FILE_MARKERS = {"/test/", "/tests/", "/__tests__/"}
+
+
+def _changed_file_role(filename):
+    normalized = "/" + filename.replace("\\", "/").lower()
+    extension = f".{filename.rsplit('.', 1)[-1].lower()}" if "." in filename else ""
+    if extension in DOCUMENTATION_EXTENSIONS or normalized.startswith("/docs/"):
+        return "documentation"
+    name = normalized.rsplit("/", 1)[-1]
+    if (
+        any(marker in normalized for marker in TEST_FILE_MARKERS)
+        or name.startswith("test_")
+        or ".test." in name
+        or ".spec." in name
+    ):
+        return "test"
+    return "implementation"
+
+
+def _extract_added_code_snippet(patch, *, max_lines=20):
+    """Return added diff lines with their line numbers in the new file."""
+    if not patch:
+        return {"snippet": "", "line_start": None, "line_end": None}
+
+    new_line = None
+    added_lines = []
+    for line in patch.splitlines():
+        if line.startswith("@@"):
+            match = re.match(r"@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@", line)
+            new_line = int(match.group(1)) if match else None
+        elif line.startswith("+++") or line.startswith("\\"):
+            continue
+        elif line.startswith("+"):
+            if new_line is not None:
+                added_lines.append((new_line, line[1:]))
+                new_line += 1
+        elif line.startswith("-"):
+            continue
+        elif new_line is not None:
+            new_line += 1
+
+    added_lines = added_lines[:max_lines]
+    if not added_lines:
+        return {"snippet": "", "line_start": None, "line_end": None}
+    return {
+        "snippet": "\n".join(content for _, content in added_lines),
+        "line_start": added_lines[0][0],
+        "line_end": added_lines[-1][0],
+    }
 
 
 def classify_github_context(context):
@@ -116,10 +172,10 @@ def validate_evaluator_conclusion(*, requirement, evidence, conclusion):
 
 
 def _get_changed_filenames(evidence):
-    """Extract unique filenames from code evidence."""
+    """Extract unique filenames from implementation evidence."""
     filenames = set()
     for item in evidence:
-        if item.evidence_type != "code":
+        if effective_evidence_type(item) != "code":
             continue
         if item.changed_file and item.changed_file.filename:
             filenames.add(item.changed_file.filename)
@@ -246,7 +302,8 @@ def _evaluate_evidence(*, requirement, pull_request, evidence):
             and item.metadata.get("head_sha") == pull_request.head_sha
         )
     ]
-    evidence_types = {item.evidence_type for item in valid_evidence}
+    evidence_types = {effective_evidence_type(item) for item in valid_evidence}
+    evidence_types.discard(None)
 
     if failed_evidence:
         names = _get_evidence_labels(failed_evidence, "test") + _get_evidence_labels(failed_evidence, "ci")
@@ -379,8 +436,8 @@ def ingest_changed_file_evidence(
     Create Evidence records for changed files associated
     with a pull request.
 
-    Each changed file becomes a piece of code evidence
-    that can later be evaluated against a requirement.
+    Each changed file is retained as evidence, but only source changes with
+    an added-code snippet can support an implementation claim.
     """
 
     changed_files = (
@@ -394,6 +451,29 @@ def ingest_changed_file_evidence(
     evidence_records = []
 
     for changed_file in changed_files:
+        role = _changed_file_role(changed_file.filename)
+        snippet_data = (
+            _extract_added_code_snippet(changed_file.patch)
+            if role in {"implementation", "test"}
+            else {"snippet": "", "line_start": None, "line_end": None}
+        )
+        metadata = {
+            "filename": changed_file.filename,
+            "status": changed_file.status,
+            "additions": changed_file.additions,
+            "deletions": changed_file.deletions,
+            "changes": changed_file.changes,
+            "evidence_role": role,
+            **snippet_data,
+        }
+        if snippet_data["snippet"]:
+            metadata["source_url"] = (
+                f"https://github.com/{pull_request.repository.full_name}/blob/"
+                f"{changed_file.commit.sha}/"
+                f"{quote(changed_file.filename, safe='/')}"
+                f"#L{snippet_data['line_start']}-L{snippet_data['line_end']}"
+            )
+
         evidence, created = Evidence.objects.get_or_create(
             requirement=requirement,
             pull_request=pull_request,
@@ -403,25 +483,13 @@ def ingest_changed_file_evidence(
             defaults={
                 "status": "valid",
                 "description": f"Changed file: {changed_file.filename}",
-                "metadata": {
-                    "filename": changed_file.filename,
-                    "status": changed_file.status,
-                    "additions": changed_file.additions,
-                    "deletions": changed_file.deletions,
-                    "changes": changed_file.changes,
-                },
+                "metadata": metadata,
             },
         )
 
         if not created and evidence.status == "valid":
             evidence.description = f"Changed file: {changed_file.filename}"
-            evidence.metadata = {
-                "filename": changed_file.filename,
-                "status": changed_file.status,
-                "additions": changed_file.additions,
-                "deletions": changed_file.deletions,
-                "changes": changed_file.changes,
-            }
+            evidence.metadata = metadata
             evidence.save(update_fields=["description", "metadata", "updated_at"])
 
         evidence_records.append(evidence)

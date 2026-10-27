@@ -363,6 +363,50 @@ def _expected_evidence_types(criterion):
     ))
 
 
+def _source_file_role(evidence_item):
+    metadata = evidence_item.metadata or {}
+    role = metadata.get("evidence_role")
+    if role:
+        return role
+
+    filename = metadata.get("filename") or (
+        evidence_item.changed_file.filename
+        if evidence_item.changed_file_id
+        else ""
+    )
+    normalized = "/" + filename.replace("\\", "/").lower()
+    if (
+        filename.lower().endswith((".adoc", ".md", ".rst", ".txt"))
+        or normalized.startswith("/docs/")
+    ):
+        return "documentation"
+    name = normalized.rsplit("/", 1)[-1]
+    if (
+        any(marker in normalized for marker in ("/test/", "/tests/", "/__tests__/"))
+        or name.startswith("test_")
+        or ".test." in name
+        or ".spec." in name
+    ):
+        return "test"
+    return "implementation"
+
+
+def effective_evidence_type(evidence_item):
+    """Map changed-file evidence to implementation, test, or no code proof."""
+    if evidence_item.evidence_type != "code":
+        return evidence_item.evidence_type
+    role = _source_file_role(evidence_item)
+    if role == "documentation":
+        return None
+    if role == "test":
+        return "test"
+    metadata = evidence_item.metadata or {}
+    snippet = metadata.get("snippet")
+    if not snippet and evidence_item.changed_file_id:
+        snippet = evidence_item.changed_file.patch
+    return "code" if snippet else None
+
+
 def _matching_evidence(*, criterion, evidence):
     expectations = criterion.expectations or {}
     expected_types = _expected_evidence_types(criterion)
@@ -370,8 +414,21 @@ def _matching_evidence(*, criterion, evidence):
 
     matches = []
     for evidence_item in evidence:
-        if evidence_item.evidence_type not in expected_types:
+        evidence_type = effective_evidence_type(evidence_item)
+        if evidence_type not in expected_types:
             continue
+        metadata = evidence_item.metadata or {}
+        if evidence_item.evidence_type == "code":
+            snippet = metadata.get("snippet")
+            if not snippet and evidence_item.changed_file_id:
+                snippet = evidence_item.changed_file.patch
+            if not snippet:
+                continue
+            if not _analyze_patch_relevance(
+                criterion.text,
+                snippet,
+            )["relevant"]:
+                continue
         if path_patterns:
             filename = (
                 evidence_item.changed_file.filename
@@ -396,16 +453,21 @@ def _analyze_patch_relevance(criterion_text: str, patch: str) -> dict:
     keywords = re.findall(r'\b\w{4,}\b', criterion_lower)
     keywords = [k for k in keywords if len(k) > 3][:8]  # limit noise
 
+    patch_lines = patch.splitlines()
     added_lines = []
-    for line in patch.splitlines():
+    for line in patch_lines:
         if line.startswith('+') and not line.startswith('+++'):
             added_lines.append(line[1:].strip())
+    if not added_lines and not any(
+        line.startswith(("@@", "+++", "---")) for line in patch_lines
+    ):
+        added_lines = [line.strip() for line in patch_lines if line.strip()]
 
     added_text = " ".join(added_lines).lower()
     found = [kw for kw in keywords if kw in added_text]
 
     return {
-        "relevant": len(found) > 0 or len(added_lines) > 0,
+        "relevant": len(found) > 0,
         "added_lines": len(added_lines),
         "keywords_found": found,
     }
@@ -421,27 +483,33 @@ def _build_criterion_summary(criterion, valid_evidence, invalid_evidence):
     if not valid_evidence:
         return f"No evidence found addressing: {criterion_text}"
 
-    # Analyze code patches for relevance
     relevant_files = []
-    total_relevant_changes = 0
     for ev in valid_evidence:
-        if ev.changed_file and ev.changed_file.patch:
-            analysis = _analyze_patch_relevance(criterion_text, ev.changed_file.patch)
-            if analysis["relevant"]:
-                relevant_files.append(ev.changed_file.filename)
-                total_relevant_changes += analysis["added_lines"]
+        if effective_evidence_type(ev) != "code":
+            continue
+        metadata = ev.metadata or {}
+        filename = metadata.get("filename") or (
+            ev.changed_file.filename if ev.changed_file_id else ""
+        )
+        snippet = metadata.get("snippet") or (
+            ev.changed_file.patch if ev.changed_file_id else ""
+        )
+        analysis = _analyze_patch_relevance(criterion_text, snippet)
+        if analysis["relevant"]:
+            line_start = metadata.get("line_start")
+            line_end = metadata.get("line_end")
+            line_label = (
+                f":{line_start}-{line_end}"
+                if line_start is not None and line_end is not None
+                else ""
+            )
+            relevant_files.append(f"{filename}{line_label}")
 
     if relevant_files:
         files_str = ", ".join(relevant_files[:3])
         if len(relevant_files) > 3:
             files_str += f" (+{len(relevant_files) - 3} more)"
-
-        if total_relevant_changes > 0:
-            return (
-                f"Addresses criterion in {files_str}. "
-                f"Added/modified ~{total_relevant_changes} lines relevant to the requirement."
-            )
-        return f"Code changes found in {files_str} that appear related to the criterion."
+        return f"Relevant implementation changes in {files_str}."
 
     # Fallback for non-code evidence
     types = sorted({e.evidence_type for e in valid_evidence})

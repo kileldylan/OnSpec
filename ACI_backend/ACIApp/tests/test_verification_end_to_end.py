@@ -71,6 +71,11 @@ def github_commit_details():
                 "additions": 10,
                 "deletions": 2,
                 "changes": 12,
+                "patch": (
+                    "@@ -1,3 +1,5 @@\n"
+                    "+def authenticate_user(credentials):\n"
+                    "+    return authentication_service.authenticate(credentials)"
+                ),
             },
         ],
     }

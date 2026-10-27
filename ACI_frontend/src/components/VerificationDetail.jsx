@@ -7,7 +7,12 @@ import StatusBadge from './StatusBadge';
 const formatEvidenceLabel = (evidence) => {
   if (!evidence) return 'Evidence';
 
-  const kind = evidence.evidence_type?.toUpperCase() || 'Evidence';
+  const role = evidence.metadata?.evidence_role;
+  const kind = role === 'documentation'
+    ? 'Documentation'
+    : role === 'test'
+      ? 'Test'
+      : evidence.evidence_type?.toUpperCase() || 'Evidence';
   const filename = evidence.metadata?.filename || evidence.changed_file?.filename;
   const context = evidence.metadata?.context || evidence.metadata?.name || evidence.description;
 
@@ -159,15 +164,46 @@ export const VerificationDetail = () => {
                     </div>
 
                     {evidenceItems.length > 0 && (
-                      <div className="w-full xl:w-72 rounded-lg border border-dark-border/60 bg-dark-bg/60 p-3">
+                      <div className="w-full rounded-lg border border-dark-border/60 bg-dark-bg/60 p-3 xl:w-[42%]">
                         <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-dark-muted mb-2">
                           <FileText className="w-3.5 h-3.5" />
                           Evidence
                         </div>
                         <ul className="space-y-2 text-sm">
                           {evidenceItems.map((evidence) => (
-                            <li key={evidence.id} className="text-dark-text break-words">
-                              {formatEvidenceLabel(evidence)}
+                            <li key={evidence.id} className="min-w-0 text-dark-text">
+                              <div className="break-all">
+                                {evidence.metadata?.source_url ? (
+                                  <a
+                                    href={evidence.metadata.source_url}
+                                    target="_blank"
+                                    rel="noreferrer"
+                                    className="text-accent-middle hover:underline"
+                                  >
+                                    {formatEvidenceLabel(evidence)}
+                                    {evidence.metadata.line_start && (
+                                      <span className="text-dark-muted">
+                                        {' '}(L{evidence.metadata.line_start}
+                                        {evidence.metadata.line_end &&
+                                          evidence.metadata.line_end !== evidence.metadata.line_start &&
+                                          `-L${evidence.metadata.line_end}`}
+                                        )
+                                      </span>
+                                    )}
+                                  </a>
+                                ) : (
+                                  formatEvidenceLabel(evidence)
+                                )}
+                              </div>
+                              {evidence.metadata?.snippet ? (
+                                <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-dark-bg p-2 text-xs font-mono text-dark-muted">
+                                  {evidence.metadata.snippet}
+                                </pre>
+                              ) : evidence.metadata?.evidence_role === 'documentation' ? (
+                                <p className="mt-1 text-xs text-dark-muted">
+                                  Documentation change; this is not implementation proof.
+                                </p>
+                              ) : null}
                             </li>
                           ))}
                         </ul>

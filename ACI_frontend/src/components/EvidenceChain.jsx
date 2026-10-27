@@ -104,9 +104,9 @@ export const EvidenceChain = ({ evidence, onEvidenceClick }) => {
                         </span>
                         <StatusBadge status={item.status} size="sm" />
                       </div>
-                      {item.filename && (
+                      {(item.metadata?.filename || item.filename) && (
                         <p className="text-xs text-dark-muted mt-0.5 font-mono truncate">
-                          📁 {item.filename}
+                          📁 {item.metadata?.filename || item.filename}
                         </p>
                       )}
                       {item.commit_sha && (
@@ -141,9 +141,33 @@ export const EvidenceChain = ({ evidence, onEvidenceClick }) => {
                 {/* Expanded content */}
                 {isExpanded && item.metadata && Object.keys(item.metadata).length > 0 && (
                   <div className="mt-3 pt-3 border-t border-dark-border">
-                    <pre className="text-xs font-mono text-dark-muted overflow-x-auto p-2 bg-dark-bg rounded-lg">
-                      {JSON.stringify(item.metadata, null, 2)}
-                    </pre>
+                    {item.metadata.snippet ? (
+                      <>
+                        <div className="mb-2 text-xs text-dark-muted">
+                          {item.metadata.source_url ? (
+                            <a
+                              href={item.metadata.source_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-accent-middle hover:underline"
+                            >
+                              View {item.metadata.filename}
+                              {item.metadata.line_start &&
+                                ` (lines ${item.metadata.line_start}-${item.metadata.line_end})`}
+                            </a>
+                          ) : (
+                            `${item.metadata.filename || 'Source'}${item.metadata.line_start ? ` (lines ${item.metadata.line_start}-${item.metadata.line_end})` : ''}`
+                          )}
+                        </div>
+                        <pre className="max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-dark-bg p-2 text-xs font-mono text-dark-muted">
+                          {item.metadata.snippet}
+                        </pre>
+                      </>
+                    ) : (
+                      <pre className="text-xs font-mono text-dark-muted overflow-x-auto p-2 bg-dark-bg rounded-lg">
+                        {JSON.stringify(item.metadata, null, 2)}
+                      </pre>
+                    )}
                   </div>
                 )}
               </div>
