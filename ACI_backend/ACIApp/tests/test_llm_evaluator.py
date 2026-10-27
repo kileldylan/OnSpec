@@ -1,6 +1,7 @@
 from unittest.mock import Mock
 
 import pytest
+import requests
 
 from ACI_backend.ACIApp.models import Evidence, PullRequest, Requirement
 from ACI_backend.integrations.verification.llm import (
@@ -104,6 +105,25 @@ def test_llm_evaluator_rejects_unknown_evidence_reference():
         LLMEvaluator(provider).evaluate(requirement, evidence)
 
 
+def test_llm_evaluator_preserves_provider_error_details():
+    requirement, evidence = create_evidence()
+    provider_error = LLMProviderError(
+        "OpenAI API returned HTTP 429 (insufficient_quota).",
+        status_code=429,
+        provider_code="insufficient_quota",
+    )
+
+    def provider(request, *, model):
+        raise provider_error
+
+    with pytest.raises(LLMProviderError) as error:
+        LLMEvaluator(provider).evaluate(requirement, evidence)
+
+    assert error.value is provider_error
+    assert error.value.status_code == 429
+    assert error.value.provider_code == "insufficient_quota"
+
+
 def test_llm_evaluator_returns_grounded_per_criterion_results():
     requirement, evidence = create_evidence()
     criterion = type(
@@ -184,3 +204,71 @@ def test_openai_provider_extracts_structured_response():
     assert session.post.call_args.kwargs["headers"]["Authorization"] == (
         "Bearer test-key"
     )
+
+
+def test_openai_provider_retries_rate_limit_then_succeeds(monkeypatch):
+    rate_limited = Mock()
+    rate_limited.status_code = 429
+    rate_limited.json.return_value = {
+        "error": {
+            "message": "Request rate limit reached.",
+            "type": "rate_limit_error",
+            "code": "rate_limit_exceeded",
+        },
+    }
+    rate_limited.raise_for_status.side_effect = requests.HTTPError(
+        response=rate_limited,
+    )
+    success = Mock()
+    success.json.return_value = {
+        "choices": [{"message": {"content": '{"status": "partial"}'}}],
+    }
+    session = Mock()
+    session.post.side_effect = [rate_limited, success]
+    sleep = Mock()
+    monkeypatch.setattr(
+        "ACI_backend.integrations.verification.llm.time.sleep",
+        sleep,
+    )
+
+    result = OpenAIProvider("test-key", session=session)(
+        {"response_schema": {}},
+        model="test-model",
+    )
+
+    assert result == '{"status": "partial"}'
+    assert session.post.call_count == 2
+    sleep.assert_called_once_with(1)
+
+
+def test_openai_provider_reports_quota_429_without_retrying(monkeypatch):
+    response = Mock()
+    response.status_code = 429
+    response.json.return_value = {
+        "error": {
+            "message": "No quota remaining.",
+            "type": "insufficient_quota",
+            "code": "insufficient_quota",
+        },
+    }
+    response.raise_for_status.side_effect = requests.HTTPError(
+        response=response,
+    )
+    session = Mock()
+    session.post.return_value = response
+    sleep = Mock()
+    monkeypatch.setattr(
+        "ACI_backend.integrations.verification.llm.time.sleep",
+        sleep,
+    )
+
+    with pytest.raises(LLMProviderError, match="insufficient_quota") as error:
+        OpenAIProvider("test-key", session=session)(
+            {"response_schema": {}},
+            model="test-model",
+        )
+
+    assert error.value.status_code == 429
+    assert error.value.provider_code == "insufficient_quota"
+    session.post.assert_called_once()
+    sleep.assert_not_called()

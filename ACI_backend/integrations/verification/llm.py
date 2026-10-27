@@ -1,4 +1,5 @@
 import json
+import time
 
 import requests
 
@@ -14,6 +15,7 @@ class OpenAIProvider:
     """Minimal OpenAI Chat Completions adapter for structured JSON output."""
 
     endpoint = "https://api.openai.com/v1/chat/completions"
+    max_rate_limit_retries = 2
 
     def __init__(self, api_key, *, timeout=30, session=None):
         self.api_key = api_key
@@ -24,48 +26,115 @@ class OpenAIProvider:
         if not self.api_key:
             raise LLMProviderError("OPENAI_API_KEY is not configured.")
 
-        response = self.session.post(
-            self.endpoint,
-            headers={
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "model": model or settings.LLM_MODEL,
-                "temperature": 0,
-                "response_format": {"type": "json_object"},
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "Evaluate only the supplied evidence. Return JSON "
-                            "matching response_schema. Never invent evidence. "
-                            "For implementation claims, use only code evidence "
-                            "whose metadata evidence_role is implementation and "
-                            "whose metadata includes a non-empty added-code "
-                            "snippet. Documentation changes such as README files "
-                            "do not prove implementation. When describing code "
-                            "evidence, cite its exact filename, line range, and "
-                            "snippet from the supplied metadata. Evaluate every "
-                            "acceptance criterion independently. Mark a criterion "
-                            "missing or partial when its behavior is not supported "
-                            "by the supplied evidence; never infer that one "
-                            "criterion is satisfied because another is."
-                        ),
+        for attempt in range(self.max_rate_limit_retries + 1):
+            try:
+                response = self.session.post(
+                    self.endpoint,
+                    headers={
+                        "Authorization": f"Bearer {self.api_key}",
+                        "Content-Type": "application/json",
                     },
-                    {
-                        "role": "user",
-                        "content": json.dumps(request),
+                    json={
+                        "model": model or settings.LLM_MODEL,
+                        "temperature": 0,
+                        "response_format": {"type": "json_object"},
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": (
+                                    "Evaluate only the supplied evidence. Return JSON "
+                                    "matching response_schema. Never invent evidence. "
+                                    "For implementation claims, use only code evidence "
+                                    "whose metadata evidence_role is implementation and "
+                                    "whose metadata includes a non-empty added-code "
+                                    "snippet. Documentation changes such as README files "
+                                    "do not prove implementation. When describing code "
+                                    "evidence, cite its exact filename, line range, and "
+                                    "snippet from the supplied metadata. Evaluate every "
+                                    "acceptance criterion independently. Mark a criterion "
+                                    "missing or partial when its behavior is not supported "
+                                    "by the supplied evidence; never infer that one "
+                                    "criterion is satisfied because another is."
+                                ),
+                            },
+                            {
+                                "role": "user",
+                                "content": json.dumps(request),
+                            },
+                        ],
                     },
-                ],
-            },
-            timeout=self.timeout,
-        )
+                    timeout=self.timeout,
+                )
+                response.raise_for_status()
+            except requests.HTTPError as error:
+                provider_error = self._provider_error(response)
+                retryable = (
+                    response.status_code == 429
+                    and provider_error["code"] != "insufficient_quota"
+                    and provider_error["type"] != "insufficient_quota"
+                    and (
+                        provider_error["code"] == "rate_limit_exceeded"
+                        or provider_error["type"] == "rate_limit_error"
+                    )
+                )
+                if retryable and attempt < self.max_rate_limit_retries:
+                    retry_after = response.headers.get("Retry-After")
+                    try:
+                        delay = float(retry_after)
+                    except (TypeError, ValueError):
+                        delay = 2**attempt
+                    if 0 <= delay <= 5:
+                        time.sleep(delay)
+                        continue
+                raise LLMProviderError(
+                    self._format_provider_error(response.status_code, provider_error),
+                    status_code=response.status_code,
+                    provider_code=provider_error["code"],
+                    provider_type=provider_error["type"],
+                ) from error
+            except requests.RequestException as error:
+                raise LLMProviderError("OpenAI request failed.") from error
+
+            try:
+                return response.json()["choices"][0]["message"]["content"]
+            except (ValueError, KeyError, IndexError, TypeError) as error:
+                raise LLMProviderError(
+                    "OpenAI returned an unusable response."
+                ) from error
+
+        raise LLMProviderError("OpenAI request failed after rate-limit retries.")
+
+    @staticmethod
+    def _provider_error(response):
         try:
-            response.raise_for_status()
-            return response.json()["choices"][0]["message"]["content"]
-        except (requests.RequestException, ValueError, KeyError, IndexError) as error:
-            raise LLMProviderError("OpenAI returned an unusable response.") from error
+            error = response.json().get("error", {})
+        except (ValueError, AttributeError):
+            error = {}
+        if not isinstance(error, dict):
+            error = {}
+        return {
+            "code": error.get("code") if isinstance(error.get("code"), str) else None,
+            "type": error.get("type") if isinstance(error.get("type"), str) else None,
+            "message": (
+                error.get("message")[:300]
+                if isinstance(error.get("message"), str)
+                else None
+            ),
+        }
+
+    @staticmethod
+    def _format_provider_error(status_code, provider_error):
+        details = [
+            item
+            for item in (provider_error["code"], provider_error["type"])
+            if item
+        ]
+        description = f"OpenAI API returned HTTP {status_code}"
+        if details:
+            description += f" ({', '.join(details)})"
+        if provider_error["message"]:
+            description += f": {provider_error['message']}"
+        return description
 
 
 def create_openai_evaluator(*, timeout=30):
@@ -130,6 +199,8 @@ class LLMEvaluator:
         request = build_evaluator_request(requirement, evidence)
         try:
             response = self.provider(request, model=self.model)
+        except LLMProviderError:
+            raise
         except Exception as error:
             raise LLMProviderError("LLM provider call failed.") from error
         try:
@@ -213,6 +284,8 @@ class LLMEvaluator:
         }
         try:
             response = self.provider(request, model=self.model)
+        except LLMProviderError:
+            raise
         except Exception as error:
             raise LLMProviderError("LLM criterion evaluation failed.") from error
         try:

@@ -309,6 +309,7 @@ class VerificationViewSet(viewsets.ReadOnlyModelViewSet):
                         "detail": str(error),
                         "run_id": error.run_id,
                         "stage": error.stage,
+                        "reason": error.reason,
                     },
                     status=status.HTTP_502_BAD_GATEWAY,
                 )

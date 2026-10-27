@@ -1214,6 +1214,7 @@ def process_next_reverification_run(
         raise VerificationProcessingError(
             run_id=run.id,
             stage="LLM evaluation",
+            reason=str(error),
         ) from error
 
     try:
@@ -1236,6 +1237,7 @@ def process_next_reverification_run(
         raise VerificationProcessingError(
             run_id=run.id,
             stage="LLM criterion evaluation",
+            reason=str(error),
         ) from error
 
     criteria_conclusion = _criteria_outcome_for_verification(verification)

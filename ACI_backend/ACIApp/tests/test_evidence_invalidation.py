@@ -366,6 +366,7 @@ def test_llm_failure_marks_run_failed_and_reports_stage():
 
     assert error.value.run_id == run.id
     assert error.value.stage == "LLM evaluation"
+    assert error.value.reason == "Provider unavailable."
     run.refresh_from_db()
     verification.refresh_from_db()
     assert run.status == "failed"
