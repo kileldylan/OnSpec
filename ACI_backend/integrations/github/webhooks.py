@@ -1,15 +1,19 @@
 import json
 import hashlib
 import hmac
+import logging
 
 from django.conf import settings
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
+from ACI_backend.integrations.github.client import GitHubAPIError
 from ACI_backend.integrations.github.service import (
     process_github_evidence_event,
     process_pull_request_event,
 )
+
+logger = logging.getLogger(__name__)
 
 PULL_REQUEST_ACTIONS = {"opened", "reopened", "synchronize", "closed"}
 CHECK_RUN_ACTIONS = {"created", "rerequested", "completed"}
@@ -124,6 +128,12 @@ def github_webhook(request):
                 {"message": "Webhook event ignored.", "event": event},
                 status=202,
             )
+    except GitHubAPIError:
+        logger.exception("GitHub API request failed while processing webhook.")
+        return JsonResponse(
+            {"detail": "GitHub API request failed."},
+            status=502,
+        )
     except (KeyError, TypeError, ValueError):
         return JsonResponse({"detail": "Invalid webhook payload."}, status=400)
 

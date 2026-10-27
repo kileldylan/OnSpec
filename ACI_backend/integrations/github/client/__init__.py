@@ -1,5 +1,6 @@
 import json
 import requests
+from requests.exceptions import RequestException
 
 from django.conf import settings
 
@@ -26,13 +27,16 @@ class GitHubClient:
         if self.token:
             headers["Authorization"] = f"Bearer {self.token}"
 
-        response = self.session.get(
-            url,
-            headers=headers,
-            timeout=self.timeout,
-        )
-        response.raise_for_status()
-        return response.json()
+        try:
+            response = self.session.get(
+                url,
+                headers=headers,
+                timeout=self.timeout,
+            )
+            response.raise_for_status()
+            return response.json()
+        except RequestException as exc:
+            raise GitHubAPIError("GitHub API request failed.") from exc
 
     def get_commit(self, owner, repository, sha):
         return self._request(f"/repos/{owner}/{repository}/commits/{sha}")

@@ -9,6 +9,7 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from ACI_backend.ACIApp.models import Commit, PullRequest, Repository
+from ACI_backend.integrations.github.client import GitHubAPIError
 
 
 @pytest.fixture
@@ -53,6 +54,26 @@ def test_github_webhook_accepts_valid_signature(api_client):
 
 
 @pytest.mark.django_db
+def test_github_push_webhook_is_acknowledged_as_ignored(api_client):
+    payload = {"ref": "refs/heads/main"}
+    signature, body = create_github_signature(payload)
+
+    response = api_client.post(
+        reverse("github-webhook"),
+        data=body,
+        content_type="application/json",
+        HTTP_X_GITHUB_EVENT="push",
+        HTTP_X_HUB_SIGNATURE_256=signature,
+    )
+
+    assert response.status_code == 202
+    assert response.json() == {
+        "message": "Webhook event ignored.",
+        "event": "push",
+    }
+
+
+@pytest.mark.django_db
 def test_github_webhook_rejects_invalid_signature(api_client):
     payload = {
         "action": "opened",
@@ -73,6 +94,31 @@ def test_github_webhook_rejects_invalid_signature(api_client):
     assert response.json() == {
         "detail": "Invalid webhook signature.",
     }
+
+
+@pytest.mark.django_db
+@patch(
+    "ACI_backend.integrations.github.webhooks.process_pull_request_event",
+    side_effect=GitHubAPIError("GitHub API request failed."),
+)
+def test_github_webhook_reports_github_api_failure(_mock_process, api_client):
+    payload = {
+        "action": "opened",
+        "repository": {},
+        "pull_request": {},
+    }
+    signature, body = create_github_signature(payload)
+
+    response = api_client.post(
+        reverse("github-webhook"),
+        data=body,
+        content_type="application/json",
+        HTTP_X_GITHUB_EVENT="pull_request",
+        HTTP_X_HUB_SIGNATURE_256=signature,
+    )
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": "GitHub API request failed."}
 
 
 @pytest.mark.django_db
