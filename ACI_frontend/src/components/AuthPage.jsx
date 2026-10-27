@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { ArrowRight, CheckCircle2, Shield } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { useAuth } from '../context/AuthContext';
+import { aciApi } from '../api/aci';
 
 const inputClass = 'w-full rounded-lg border border-dark-border bg-dark-bg px-4 py-3 text-sm text-dark-text outline-none transition focus:border-accent-middle focus:ring-1 focus:ring-accent-middle';
 
@@ -12,6 +13,34 @@ export const Login = () => {
   const location = useLocation();
   const [form, setForm] = useState({ username: '', password: '' });
   const [submitting, setSubmitting] = useState(false);
+  const [githubSubmitting, setGithubSubmitting] = useState(false);
+
+  useEffect(() => {
+    const result = new URLSearchParams(location.search).get('github');
+    if (!result) return;
+
+    const messages = {
+      cancelled: 'GitHub sign-in was cancelled.',
+      failed: 'GitHub sign-in failed. Please try again.',
+      invalid_state: 'GitHub sign-in expired. Please try again.',
+      already_linked: 'This GitHub account is linked to another ACI user.',
+    };
+    toast.error(messages[result] || 'Unable to sign in with GitHub.');
+    navigate('/login', { replace: true });
+  }, [location.search, navigate]);
+
+  const signInWithGitHub = async () => {
+    setGithubSubmitting(true);
+    try {
+      const response = await aciApi.getGitHubLoginUrl();
+      window.location.assign(response.data.authorization_url);
+    } catch (error) {
+      toast.error(
+        error.response?.data?.detail || 'Unable to start GitHub sign-in.'
+      );
+      setGithubSubmitting(false);
+    }
+  };
 
   const submit = async (event) => {
     event.preventDefault();
@@ -26,7 +55,7 @@ export const Login = () => {
     }
   };
 
-  return <AuthForm title="Welcome back" subtitle="Sign in to review your delivery evidence." submitLabel="Sign in" form={form} setForm={setForm} submit={submit} submitting={submitting} login />;
+  return <AuthForm title="Welcome back" subtitle="Sign in to review your delivery evidence." submitLabel="Sign in" form={form} setForm={setForm} submit={submit} submitting={submitting} login onGitHubSignIn={signInWithGitHub} githubSubmitting={githubSubmitting} />;
 };
 
 export const Register = () => {
@@ -53,7 +82,7 @@ export const Register = () => {
   return <AuthForm title="Create your account" subtitle="Start making every release decision auditable." submitLabel="Create account" form={form} setForm={setForm} submit={submit} submitting={submitting} />;
 };
 
-const AuthForm = ({ title, subtitle, submitLabel, form, setForm, submit, submitting, login }) => {
+const AuthForm = ({ title, subtitle, submitLabel, form, setForm, submit, submitting, login, onGitHubSignIn, githubSubmitting }) => {
   const fields = login
     ? [['username', 'Username or email', 'text'], ['password', 'Password', 'password']]
     : [['username', 'Username', 'text'], ['email', 'Work email', 'email'], ['password', 'Password', 'password'], ['password_confirm', 'Confirm password', 'password']];
@@ -73,6 +102,23 @@ const AuthForm = ({ title, subtitle, submitLabel, form, setForm, submit, submitt
             ))}
             <button disabled={submitting} className="mt-3 flex w-full items-center justify-center gap-2 rounded-lg bg-accent-middle px-4 py-3 text-sm font-semibold text-white transition hover:bg-accent-end disabled:cursor-not-allowed disabled:opacity-60" type="submit">{submitting ? 'Please wait...' : submitLabel}<ArrowRight className="h-4 w-4" /></button>
           </form>
+          {login && (
+            <>
+              <div className="my-5 flex items-center gap-3 text-xs text-dark-muted">
+                <span className="h-px flex-1 bg-dark-border" />
+                <span>or</span>
+                <span className="h-px flex-1 bg-dark-border" />
+              </div>
+              <button
+                type="button"
+                onClick={onGitHubSignIn}
+                disabled={githubSubmitting}
+                className="flex w-full items-center justify-center gap-2 rounded-lg border border-dark-border px-4 py-3 text-sm font-semibold transition hover:bg-dark-hover disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {githubSubmitting ? 'Connecting to GitHub...' : 'Continue with GitHub'}
+              </button>
+            </>
+          )}
           <p className="mt-6 text-center text-sm text-dark-muted">{login ? 'New to ACI?' : 'Already have an account?'}{' '}<Link className="font-semibold text-accent-middle hover:text-accent-end" to={login ? '/register' : '/login'}>{login ? 'Create an account' : 'Sign in'}</Link></p>
         </div>
         <p className="mt-6 flex items-center justify-center gap-2 text-xs text-dark-muted"><CheckCircle2 className="h-3.5 w-3.5 text-verified" /> Evidence-backed delivery decisions</p>

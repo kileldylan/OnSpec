@@ -42,6 +42,36 @@ def test_github_connect_returns_authorization_url_and_session_state(settings):
     assert query["redirect_uri"] == [settings.GITHUB_OAUTH_REDIRECT_URI]
     assert query["scope"] == ["read:user"]
     assert query["state"] == [client.session["github_oauth_state"]]
+    assert client.session["github_oauth_mode"] == "link"
+
+
+@pytest.mark.django_db
+def test_github_login_returns_authorization_url_for_anonymous_user(settings):
+    settings.GITHUB_OAUTH_CLIENT_ID = "oauth-client-id"
+    settings.GITHUB_OAUTH_CLIENT_SECRET = "oauth-client-secret"
+    client = APIClient()
+
+    response = client.get(reverse("github-oauth-login"))
+
+    assert response.status_code == 200
+    query = parse_qs(urlparse(response.json()["authorization_url"]).query)
+    assert query["client_id"] == ["oauth-client-id"]
+    assert query["scope"] == ["read:user"]
+    assert query["state"] == [client.session["github_oauth_state"]]
+    assert client.session["github_oauth_mode"] == "login"
+
+
+@pytest.mark.django_db
+def test_github_login_reports_missing_oauth_configuration(settings):
+    settings.GITHUB_OAUTH_CLIENT_ID = ""
+    settings.GITHUB_OAUTH_CLIENT_SECRET = ""
+
+    response = APIClient().get(reverse("github-oauth-login"))
+
+    assert response.status_code == 503
+    assert response.json() == {
+        "detail": "GitHub account connection is not configured."
+    }
 
 
 @pytest.mark.django_db
@@ -90,6 +120,7 @@ def test_github_callback_links_account_and_matching_repositories(
     client.force_login(user)
     session = client.session
     session["github_oauth_state"] = "valid-state"
+    session["github_oauth_mode"] = "link"
     session.save()
 
     response = client.get(
@@ -113,6 +144,68 @@ def test_github_callback_links_account_and_matching_repositories(
 
 
 @pytest.mark.django_db
+@patch(
+    "ACI_backend.api.auth.exchange_code",
+    return_value={"id": 555123, "login": "new-github-user"},
+)
+def test_github_login_creates_user_and_authenticates_by_github_id(
+    _exchange_code,
+    settings,
+):
+    settings.FRONTEND_URL = "https://on-spec.vercel.app"
+    client = APIClient()
+    session = client.session
+    session["github_oauth_state"] = "valid-login-state"
+    session["github_oauth_mode"] = "login"
+    session.save()
+
+    response = client.get(
+        reverse("github-oauth-callback"),
+        {"state": "valid-login-state", "code": "oauth-code"},
+    )
+
+    user = get_user_model().objects.get(username="github-555123")
+    assert response.status_code == 302
+    assert response.url == "https://on-spec.vercel.app/"
+    assert GitHubAccount.objects.get(user=user).github_login == "new-github-user"
+    assert client.get(reverse("auth-me")).json()["user"]["id"] == user.id
+
+
+@pytest.mark.django_db
+@patch(
+    "ACI_backend.api.auth.exchange_code",
+    return_value={"id": 555123, "login": "renamed-github-user"},
+)
+def test_github_login_reuses_existing_github_account(_exchange_code, settings):
+    settings.FRONTEND_URL = "https://on-spec.vercel.app"
+    user = get_user_model().objects.create_user(
+        username="github-555123",
+        email="",
+        password=None,
+    )
+    GitHubAccount.objects.create(
+        user=user,
+        github_id=555123,
+        github_login="old-github-login",
+    )
+    client = APIClient()
+    session = client.session
+    session["github_oauth_state"] = "valid-login-state"
+    session["github_oauth_mode"] = "login"
+    session.save()
+
+    response = client.get(
+        reverse("github-oauth-callback"),
+        {"state": "valid-login-state", "code": "oauth-code"},
+    )
+
+    assert response.status_code == 302
+    assert get_user_model().objects.count() == 1
+    assert client.get(reverse("auth-me")).json()["user"]["id"] == user.id
+    assert GitHubAccount.objects.get(user=user).github_login == "renamed-github-user"
+
+
+@pytest.mark.django_db
 def test_github_callback_rejects_invalid_state():
     user = get_user_model().objects.create_user(
         username="aci-user",
@@ -123,6 +216,7 @@ def test_github_callback_rejects_invalid_state():
     client.force_login(user)
     session = client.session
     session["github_oauth_state"] = "expected-state"
+    session["github_oauth_mode"] = "link"
     session.save()
 
     response = client.get(

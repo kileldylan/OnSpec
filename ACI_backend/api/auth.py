@@ -131,6 +131,16 @@ def current_user(request):
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
 def github_oauth_connect(request):
+    return _github_oauth_authorization_response(request, mode="link")
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def github_oauth_login(request):
+    return _github_oauth_authorization_response(request, mode="login")
+
+
+def _github_oauth_authorization_response(request, *, mode):
     if (
         not settings.GITHUB_OAUTH_CLIENT_ID
         or not settings.GITHUB_OAUTH_CLIENT_SECRET
@@ -142,6 +152,7 @@ def github_oauth_connect(request):
 
     state = secrets.token_urlsafe(32)
     request.session["github_oauth_state"] = state
+    request.session["github_oauth_mode"] = mode
     query = urlencode(
         {
             "client_id": settings.GITHUB_OAUTH_CLIENT_ID,
@@ -160,49 +171,89 @@ def github_oauth_connect(request):
 def github_oauth_callback(request):
     state = request.query_params.get("state", "")
     expected_state = request.session.pop("github_oauth_state", "")
+    mode = request.session.pop("github_oauth_mode", "link")
     if (
         not expected_state
         or not state
         or not hmac.compare_digest(state, expected_state)
     ):
-        return _github_oauth_redirect("invalid_state")
-
-    if not request.user.is_authenticated:
-        return _github_oauth_redirect("login_required")
+        return _github_oauth_redirect("invalid_state", mode=mode)
 
     if request.query_params.get("error"):
-        return _github_oauth_redirect("cancelled")
+        return _github_oauth_redirect("cancelled", mode=mode)
 
     code = request.query_params.get("code")
     if not code:
-        return _github_oauth_redirect("failed")
+        return _github_oauth_redirect("failed", mode=mode)
 
     try:
         github_user = exchange_code(code)
     except GitHubOAuthError:
         logger.exception("GitHub OAuth exchange failed.")
-        return _github_oauth_redirect("failed")
+        return _github_oauth_redirect("failed", mode=mode)
 
     try:
         with transaction.atomic():
-            account, created = GitHubAccount.objects.get_or_create(
-                user=request.user,
-                defaults={
-                    "github_id": github_user["id"],
-                    "github_login": github_user["login"],
-                },
-            )
-            if not created and account.github_id != github_user["id"]:
-                return _github_oauth_redirect("account_mismatch")
+            account = GitHubAccount.objects.select_related("user").filter(
+                github_id=github_user["id"],
+            ).first()
+            if mode == "link":
+                if not request.user.is_authenticated:
+                    return _github_oauth_redirect("login_required", mode=mode)
+                account_for_user = GitHubAccount.objects.filter(
+                    user=request.user,
+                ).first()
+                if (
+                    account_for_user
+                    and account_for_user.github_id != github_user["id"]
+                ):
+                    return _github_oauth_redirect(
+                        "account_mismatch",
+                        mode=mode,
+                    )
+                if account and account.user_id != request.user.id:
+                    return _github_oauth_redirect(
+                        "already_linked",
+                        mode=mode,
+                    )
+                user = request.user
+                if account is None:
+                    account = GitHubAccount(user=user)
+            elif mode == "login":
+                if account is None:
+                    username = f"github-{github_user['id']}"
+                    user = User.objects.create_user(
+                        username=username,
+                        email="",
+                        password=None,
+                    )
+                    account = GitHubAccount(
+                        user=user,
+                        github_id=github_user["id"],
+                        github_login=github_user["login"],
+                    )
+                else:
+                    user = account.user
+            else:
+                return _github_oauth_redirect("invalid_state", mode=mode)
+
             account.github_id = github_user["id"]
             account.github_login = github_user["login"]
-            account.save(update_fields=("github_id", "github_login", "connected_at"))
+            account.save()
             link_github_account_repositories(account)
     except IntegrityError:
-        return _github_oauth_redirect("already_linked")
+        logger.exception("GitHub account could not be linked to the ACI user.")
+        return _github_oauth_redirect("already_linked", mode=mode)
 
-    return _github_oauth_redirect("connected")
+    if mode == "login":
+        login(request, user)
+        return HttpResponseRedirect(f"{settings.FRONTEND_URL}/")
+    return _github_oauth_redirect("connected", mode=mode)
 
 
-def _github_oauth_redirect(result):
+def _github_oauth_redirect(result, *, mode="link"):
+    if mode == "login":
+        return HttpResponseRedirect(
+            f"{settings.FRONTEND_URL}/login?github={result}"
+        )
     return HttpResponseRedirect(f"{settings.FRONTEND_URL}/?github={result}")

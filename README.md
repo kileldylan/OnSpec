@@ -582,11 +582,12 @@ The GitHub integration is responsible for obtaining information such as:
 * commits
 * changed files
 
-Users connect their GitHub identity from the ACI navigation. ACI verifies the
-identity through GitHub OAuth using the `read:user` scope; it does not store the
-OAuth access token or match accounts by email. A verified account can see a
-repository when its GitHub login owns that repository or authored a pull
-request in it.
+Users can sign in with GitHub from the ACI login page or connect GitHub from
+the ACI navigation. ACI verifies the identity through GitHub OAuth using the
+`read:user` scope; it does not store the OAuth access token or match accounts
+by email. GitHub sign-in creates/reuses an ACI account based on GitHub's stable
+user ID. A verified account can see a repository when its GitHub login owns
+that repository or authored a pull request in it.
 
 Create a GitHub OAuth App with the ACI frontend as its homepage and this
 authorization callback URL:
@@ -595,7 +596,8 @@ authorization callback URL:
 https://on-spec.vercel.app/api/auth/github/callback/
 ```
 
-Configure these variables on the backend deployment:
+Configure these variables on the backend deployment. Without the OAuth client
+ID and secret, the connect/login endpoint returns 503:
 
 * `GITHUB_OAUTH_CLIENT_ID`
 * `GITHUB_OAUTH_CLIENT_SECRET`

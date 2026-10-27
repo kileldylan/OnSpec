@@ -50,6 +50,7 @@ export const aciApi = {
     }),
   getCurrentUser: () => api.get('/auth/me/'),
   getGitHubAuthorizationUrl: () => api.get('/auth/github/connect/'),
+  getGitHubLoginUrl: () => api.get('/auth/github/login/'),
 
   // ============ REPOSITORIES ============
   getRepositories: (params = {}) => 
