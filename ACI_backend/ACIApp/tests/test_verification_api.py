@@ -1,5 +1,8 @@
+from unittest.mock import patch
+
 import pytest
 from django.contrib.auth import get_user_model
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -547,7 +550,9 @@ def test_verification_worker_accepts_session_request_with_csrf_token():
 
 
 @pytest.mark.django_db
-def test_verification_worker_can_process_queued_runs():
+@override_settings(OPENAI_API_KEY="")
+@patch("ACI_backend.api.views.collect_repository_code_evidence")
+def test_verification_worker_can_process_queued_runs(mock_source_collector):
     user = get_user_model().objects.create_user(
         username="verification-worker",
         password="test-password",
@@ -618,5 +623,9 @@ def test_verification_worker_can_process_queued_runs():
 
     run.refresh_from_db()
     assert run.status == "completed"
+    mock_source_collector.assert_called_once_with(
+        requirement=requirement,
+        pull_request=pull_request,
+    )
     verification.refresh_from_db()
     assert verification.status in {"verified", "partial", "unverified"}

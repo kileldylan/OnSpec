@@ -1,3 +1,4 @@
+from django.conf import settings
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -26,7 +27,9 @@ from ACI_backend.api.serializers import (
 from ACI_backend.api.permissions import visible_repositories
 from ACI_backend.integrations.jira.client import JiraAPIError, JiraClient
 from ACI_backend.integrations.jira.service import ingest_jira_requirement
+from ACI_backend.integrations.verification.llm import create_openai_evaluator
 from ACI_backend.integrations.verification.service import (
+    collect_repository_code_evidence,
     process_next_reverification_run,
     recover_stuck_reverification_runs,
     start_initial_verification,
@@ -281,7 +284,15 @@ class VerificationViewSet(viewsets.ReadOnlyModelViewSet):
             if queued_run is None:
                 break
 
-            verification = process_next_reverification_run()
+            evaluator = (
+                create_openai_evaluator()
+                if settings.OPENAI_API_KEY
+                else None
+            )
+            verification = process_next_reverification_run(
+                evaluator=evaluator,
+                source_evidence_collector=collect_repository_code_evidence,
+            )
             if verification is None:
                 break
 

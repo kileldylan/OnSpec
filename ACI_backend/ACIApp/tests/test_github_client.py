@@ -1,3 +1,4 @@
+import base64
 from unittest.mock import patch
 
 import pytest
@@ -42,4 +43,42 @@ def test_get_commit_returns_github_commit(github_client):
     mock_request.assert_called_once_with(
         "/repos/kilel/aci-demo/commits/"
         "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    )
+
+
+def test_get_repository_tree_uses_recursive_ref(github_client):
+    with patch.object(
+        github_client,
+        "_request",
+        return_value={"tree": []},
+    ) as mock_request:
+        result = github_client.get_repository_tree(
+            "kilel",
+            "aci-demo",
+            "feature/reset",
+        )
+
+    assert result == {"tree": []}
+    mock_request.assert_called_once_with(
+        "/repos/kilel/aci-demo/git/trees/feature%2Freset?recursive=1"
+    )
+
+
+def test_get_repository_file_decodes_base64_content(github_client):
+    encoded = base64.b64encode(b"def request_password_reset():\n").decode()
+    with patch.object(
+        github_client,
+        "_request",
+        return_value={"encoding": "base64", "content": encoded},
+    ) as mock_request:
+        result = github_client.get_repository_file(
+            "kilel",
+            "aci-demo",
+            "accounts/password_reset.py",
+            "abc123",
+        )
+
+    assert result == "def request_password_reset():\n"
+    mock_request.assert_called_once_with(
+        "/repos/kilel/aci-demo/contents/accounts/password_reset.py?ref=abc123"
     )

@@ -3,6 +3,7 @@ from django.core.management.base import BaseCommand, CommandError
 
 from ACI_backend.integrations.verification.llm import create_openai_evaluator
 from ACI_backend.integrations.verification.service import (
+    collect_repository_code_evidence,
     process_next_reverification_run,
     recover_stuck_reverification_runs,
 )
@@ -53,6 +54,7 @@ class Command(BaseCommand):
         ) and process_next_reverification_run(
             evaluator=evaluator,
             test_runner=test_runner,
+            source_evidence_collector=collect_repository_code_evidence,
         ) is not None:
             processed += 1
 

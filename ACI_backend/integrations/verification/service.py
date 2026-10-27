@@ -1,13 +1,14 @@
-from django.conf import settings
 from datetime import timedelta
 import re
 from urllib.parse import quote
 
+from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
 from ACI_backend.ACIApp.models import (
     ChangedFile,
+    Commit,
     CriterionVerification,
     DeliveryDecision,
     Evidence,
@@ -21,7 +22,9 @@ from ACI_backend.ACIApp.models import (
 from ACI_backend.integrations.verification.criteria import (
     effective_evidence_type,
     execute_criteria,
+    list_active_criteria,
 )
+from ACI_backend.integrations.github.client import GitHubClient
 from ACI_backend.integrations.verification.decisions import (
     create_delivery_decision,
 )
@@ -52,6 +55,23 @@ DEFAULT_GITHUB_CI_CONTEXTS = {
 
 DOCUMENTATION_EXTENSIONS = {".adoc", ".md", ".rst", ".txt"}
 TEST_FILE_MARKERS = {"/test/", "/tests/", "/__tests__/"}
+SOURCE_EXTENSIONS = {
+    ".c", ".cc", ".cpp", ".cs", ".go", ".h", ".hpp", ".java", ".js",
+    ".jsx", ".kt", ".php", ".py", ".rb", ".rs", ".scala", ".sql", ".swift",
+    ".ts", ".tsx",
+}
+IGNORED_SOURCE_PATHS = {
+    ".git", ".venv", "build", "dist", "migrations", "node_modules",
+    "vendor",
+}
+SOURCE_FILE_SCAN_LIMIT = 12
+SOURCE_FILE_MAX_BYTES = 200_000
+SOURCE_SNIPPET_MAX_LINES = 20
+SOURCE_MATCH_STOPWORDS = {
+    "about", "after", "also", "and", "are", "can", "does", "each", "from",
+    "have", "into", "must", "that", "the", "their", "then", "there", "this",
+    "through", "when", "where", "which", "with", "should",
+}
 
 
 def _changed_file_role(filename):
@@ -100,6 +120,191 @@ def _extract_added_code_snippet(patch, *, max_lines=20):
         "line_start": added_lines[0][0],
         "line_end": added_lines[-1][0],
     }
+
+
+def _source_search_terms(requirement, criteria):
+    text = " ".join(
+        [criterion.text for criterion in criteria]
+        + [requirement.title, requirement.description]
+    )
+    words = re.findall(r"[A-Za-z][A-Za-z0-9]*", re.sub(r"([a-z])([A-Z])", r"\1 \2", text))
+    terms = [
+        word.lower()
+        for word in words
+        if len(word) >= 3 and word.lower() not in SOURCE_MATCH_STOPWORDS
+    ]
+    return set(terms[:30])
+
+
+def _source_candidate_score(path, search_terms):
+    path_terms = set(
+        re.findall(r"[A-Za-z][A-Za-z0-9]*", re.sub(r"([a-z])([A-Z])", r"\1 \2", path))
+    )
+    return len({term.lower() for term in path_terms} & search_terms)
+
+
+def _is_source_candidate(item):
+    path = item.get("path", "")
+    parts = {part.lower() for part in path.split("/")}
+    extension = "." + path.rsplit(".", 1)[-1].lower() if "." in path else ""
+    return (
+        item.get("type") == "blob"
+        and extension in SOURCE_EXTENSIONS
+        and item.get("size", SOURCE_FILE_MAX_BYTES + 1) <= SOURCE_FILE_MAX_BYTES
+        and not parts.intersection(IGNORED_SOURCE_PATHS)
+        and _changed_file_role(path) == "implementation"
+        and not path.lower().endswith((".min.js", ".min.css"))
+    )
+
+
+def _extract_relevant_source_snippet(source, search_terms):
+    """Choose one short source window with the strongest literal term match."""
+    lines = source.splitlines()
+    if not lines or not search_terms:
+        return None
+
+    window_matches = {}
+    for term in search_terms:
+        matcher = re.compile(
+            rf"(?<![A-Za-z0-9]){re.escape(term)}(?![A-Za-z0-9])",
+            flags=re.IGNORECASE,
+        )
+        for line_index, line in enumerate(lines):
+            if not matcher.search(line):
+                continue
+            first_start = max(0, line_index - SOURCE_SNIPPET_MAX_LINES + 1)
+            for start in range(first_start, line_index + 1):
+                window_matches.setdefault(start, set()).add(term)
+
+    if not window_matches:
+        return None
+
+    start = max(
+        window_matches,
+        key=lambda index: (
+            len(window_matches[index]),
+            -index,
+        ),
+    )
+    end = min(start + SOURCE_SNIPPET_MAX_LINES, len(lines))
+    return {
+        "snippet": "\n".join(lines[start:end]),
+        "line_start": start + 1,
+        "line_end": end,
+        "matched_terms": sorted(window_matches[start]),
+    }
+
+
+def collect_repository_code_evidence(
+    *,
+    requirement,
+    pull_request,
+    github_client=None,
+):
+    """Find implementation snippets in source files at the PR head commit."""
+    criteria = list(list_active_criteria(requirement=requirement))
+    search_terms = _source_search_terms(requirement, criteria)
+    if not search_terms:
+        return []
+
+    github_client = github_client or GitHubClient(
+        token=settings.GITHUB_ACCESS_TOKEN,
+    )
+    tree = github_client.get_repository_tree(
+        pull_request.repository.owner,
+        pull_request.repository.name,
+        pull_request.head_sha,
+    )
+    candidates = [
+        item for item in tree.get("tree", [])
+        if _is_source_candidate(item)
+    ]
+    candidates.sort(
+        key=lambda item: (
+            -_source_candidate_score(item["path"], search_terms),
+            item["path"].count("/"),
+            item["path"].lower(),
+        )
+    )
+
+    commit = Commit.objects.filter(
+        repository=pull_request.repository,
+        sha=pull_request.head_sha,
+    ).first()
+    current_evidence = []
+    for candidate in candidates[:SOURCE_FILE_SCAN_LIMIT]:
+        path = candidate["path"]
+        source = github_client.get_repository_file(
+            pull_request.repository.owner,
+            pull_request.repository.name,
+            path,
+            pull_request.head_sha,
+        )
+        snippet_data = _extract_relevant_source_snippet(source, search_terms)
+        if snippet_data is None:
+            continue
+
+        source_url = (
+            f"https://github.com/{pull_request.repository.full_name}/blob/"
+            f"{pull_request.head_sha}/{quote(path, safe='/')}"
+            f"#L{snippet_data['line_start']}-L{snippet_data['line_end']}"
+        )
+        metadata = {
+            "source": "repository_snapshot",
+            "source_sha": pull_request.head_sha,
+            "source_path": path,
+            "filename": path,
+            "evidence_role": "implementation",
+            "snippet": snippet_data["snippet"],
+            "line_start": snippet_data["line_start"],
+            "line_end": snippet_data["line_end"],
+            "matched_terms": snippet_data["matched_terms"],
+            "source_url": source_url,
+        }
+        evidence = Evidence.objects.filter(
+            requirement=requirement,
+            pull_request=pull_request,
+            evidence_type="code",
+            metadata__source="repository_snapshot",
+            metadata__source_path=path,
+        ).first()
+        if evidence is None:
+            evidence = Evidence.objects.create(
+                requirement=requirement,
+                pull_request=pull_request,
+                commit=commit,
+                evidence_type="code",
+                status="valid",
+                description=f"Implementation source: {path}",
+                metadata=metadata,
+            )
+        else:
+            evidence.commit = commit
+            evidence.status = "valid"
+            evidence.description = f"Implementation source: {path}"
+            evidence.metadata = metadata
+            evidence.save(
+                update_fields=[
+                    "commit",
+                    "status",
+                    "description",
+                    "metadata",
+                    "updated_at",
+                ]
+            )
+        current_evidence.append(evidence)
+
+    Evidence.objects.filter(
+        requirement=requirement,
+        pull_request=pull_request,
+        evidence_type="code",
+        status="valid",
+        metadata__source="repository_snapshot",
+    ).exclude(metadata__source_sha=pull_request.head_sha).update(
+        status="stale",
+        updated_at=timezone.now(),
+    )
+    return current_evidence
 
 
 def classify_github_context(context):
@@ -899,7 +1104,12 @@ def complete_reverification_run(
     return verification
 
 
-def process_next_reverification_run(*, evaluator=None, test_runner=None):
+def process_next_reverification_run(
+    *,
+    evaluator=None,
+    test_runner=None,
+    source_evidence_collector=None,
+):
     """Process the oldest queued run.
 
     Collects evidence, runs criteria evaluation, and produces a more
@@ -933,6 +1143,11 @@ def process_next_reverification_run(*, evaluator=None, test_runner=None):
         requirement=verification.requirement,
         pull_request=pull_request,
     )
+    if source_evidence_collector is not None:
+        source_evidence_collector(
+            requirement=verification.requirement,
+            pull_request=pull_request,
+        )
     if test_runner is not None:
         execute_test_run(
             verification_run=run,
