@@ -104,6 +104,65 @@ def test_llm_evaluator_rejects_unknown_evidence_reference():
         LLMEvaluator(provider).evaluate(requirement, evidence)
 
 
+def test_llm_evaluator_returns_grounded_per_criterion_results():
+    requirement, evidence = create_evidence()
+    criterion = type(
+        "Criterion",
+        (),
+        {"pk": 4, "text": "Users can authenticate."},
+    )()
+
+    def provider(request, *, model):
+        assert request["criteria"] == [
+            {"id": 4, "text": "Users can authenticate."},
+        ]
+        assert request["evidence"][0]["metadata"]["snippet"]
+        return {
+            "evaluations": [{
+                "criterion_id": 4,
+                "status": "satisfied",
+                "summary": (
+                    "Implemented in auth/service.py, line 18: "
+                    "def authenticate_user(credentials):"
+                ),
+                "confidence": 0.9,
+                "evidence_ids": [3],
+            }],
+        }
+
+    result = LLMEvaluator(provider).evaluate_criteria(
+        requirement,
+        [criterion],
+        evidence,
+    )
+
+    assert result[4]["status"] == "satisfied"
+    assert result[4]["evidence"] == evidence
+
+
+def test_llm_criterion_evaluation_rejects_satisfied_without_evidence():
+    requirement, evidence = create_evidence()
+    criterion = type(
+        "Criterion",
+        (),
+        {"pk": 4, "text": "Users can authenticate."},
+    )()
+    evaluator = LLMEvaluator(
+        lambda request, *, model: {
+            "evaluations": [{
+                "criterion_id": 4,
+                "status": "satisfied",
+                "summary": "Implemented.",
+                "confidence": 0.9,
+                "evidence_ids": [],
+            }],
+        }
+    )
+
+    with pytest.raises(LLMProviderError, match="without supporting evidence"):
+        evaluator.evaluate_criteria(requirement, [criterion], evidence)
+
+
 def test_openai_provider_extracts_structured_response():
     response = Mock()
     response.json.return_value = {

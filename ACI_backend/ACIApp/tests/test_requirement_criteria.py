@@ -1,3 +1,5 @@
+from unittest.mock import Mock
+
 import pytest
 
 from ACI_backend.ACIApp.models import (
@@ -217,6 +219,69 @@ def test_documentation_change_does_not_satisfy_implementation_criterion(requirem
 
     assert results[0].status == "missing"
     assert results[0].evidence_links.count() == 0
+
+
+@pytest.mark.django_db
+def test_execute_criteria_uses_llm_evaluation_when_provided(requirement):
+    criterion = create_criterion(
+        requirement=requirement,
+        text="The reset link expires securely.",
+    )
+    pull_request = PullRequest.objects.create(
+        repository=requirement.repository,
+        github_id=99006,
+        number=5,
+        title="Implement reset token expiration",
+        author="aci",
+        source_branch="feature/reset-expiration",
+        target_branch="main",
+        base_sha="b" * 40,
+        head_sha="a" * 40,
+        created_at="2026-08-19T07:00:00Z",
+        updated_at="2026-08-19T07:00:00Z",
+    )
+    verification = Verification.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+    )
+    evidence = Evidence.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+        evidence_type="code",
+        status="valid",
+        metadata={
+            "filename": "accounts/tokens.py",
+            "evidence_role": "implementation",
+            "snippet": "def token_is_expired(token): return token.expired",
+            "line_start": 20,
+            "line_end": 20,
+        },
+    )
+    evaluator = Mock()
+    evaluator.evaluate_criteria.return_value = {
+        criterion.pk: {
+            "status": "satisfied",
+            "summary": "Implemented in accounts/tokens.py:20.",
+            "confidence": 0.9,
+            "evidence": [evidence],
+        },
+    }
+
+    result = execute_criteria(
+        verification=verification,
+        evidence=[evidence],
+        evaluator=evaluator,
+    )
+
+    assert result[0].status == "satisfied"
+    assert result[0].summary == "Implemented in accounts/tokens.py:20."
+    assert result[0].metadata["evaluator"] == "llm"
+    assert result[0].evidence_links.get().evidence == evidence
+    evaluator.evaluate_criteria.assert_called_once_with(
+        requirement,
+        [criterion],
+        [evidence],
+    )
 
 
 @pytest.mark.django_db

@@ -46,7 +46,11 @@ class OpenAIProvider:
                             "snippet. Documentation changes such as README files "
                             "do not prove implementation. When describing code "
                             "evidence, cite its exact filename, line range, and "
-                            "snippet from the supplied metadata."
+                            "snippet from the supplied metadata. Evaluate every "
+                            "acceptance criterion independently. Mark a criterion "
+                            "missing or partial when its behavior is not supported "
+                            "by the supplied evidence; never infer that one "
+                            "criterion is satisfied because another is."
                         ),
                     },
                     {
@@ -161,3 +165,130 @@ class LLMEvaluator:
             )
         except (TypeError, ValueError) as error:
             raise LLMProviderError("LLM conclusion failed contract validation.") from error
+
+    def evaluate_criteria(self, requirement, criteria, evidence):
+        """Evaluate every criterion against only the supplied evidence."""
+        criteria = list(criteria)
+        evidence = list(evidence)
+        request = {
+            "requirement": {
+                "id": requirement.pk,
+                "external_id": requirement.external_id,
+                "title": requirement.title,
+                "description": requirement.description,
+            },
+            "criteria": [
+                {"id": criterion.pk, "text": criterion.text}
+                for criterion in criteria
+            ],
+            "evidence": [
+                {
+                    "id": item.pk,
+                    "type": item.evidence_type,
+                    "description": item.description,
+                    "metadata": item.metadata,
+                    "filename": (
+                        item.changed_file.filename
+                        if item.changed_file_id
+                        else (item.metadata or {}).get("filename")
+                    ),
+                    "commit_sha": item.commit.sha if item.commit_id else None,
+                }
+                for item in evidence
+            ],
+            "response_schema": {
+                "evaluations": [
+                    {
+                        "criterion_id": "supplied criterion id",
+                        "status": "satisfied|partial|missing|not_applicable|failed",
+                        "summary": (
+                            "string; implementation evidence cites exact file, "
+                            "line range, and supplied snippet"
+                        ),
+                        "confidence": "number between 0 and 1",
+                        "evidence_ids": "array of supplied evidence ids",
+                    }
+                ]
+            },
+        }
+        try:
+            response = self.provider(request, model=self.model)
+        except Exception as error:
+            raise LLMProviderError("LLM criterion evaluation failed.") from error
+        try:
+            response = json.loads(response) if isinstance(response, str) else response
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise LLMProviderError(
+                "LLM returned unreadable criterion results."
+            ) from error
+        if not isinstance(response, dict) or not isinstance(
+            response.get("evaluations"),
+            list,
+        ):
+            raise LLMProviderError(
+                "LLM criterion response must include evaluations."
+            )
+
+        criteria_by_id = {criterion.pk: criterion for criterion in criteria}
+        evidence_by_id = {item.pk: item for item in evidence}
+        results = {}
+        valid_statuses = {
+            "satisfied",
+            "partial",
+            "missing",
+            "not_applicable",
+            "failed",
+        }
+        for item in response["evaluations"]:
+            if not isinstance(item, dict):
+                raise LLMProviderError("LLM criterion result must be an object.")
+            criterion_id = item.get("criterion_id")
+            if criterion_id not in criteria_by_id or criterion_id in results:
+                raise LLMProviderError(
+                    "LLM returned an unknown or duplicate criterion."
+                )
+            status = item.get("status")
+            summary = item.get("summary")
+            confidence = item.get("confidence")
+            evidence_ids = item.get("evidence_ids")
+            if status not in valid_statuses:
+                raise LLMProviderError("LLM returned an invalid criterion status.")
+            if not isinstance(summary, str):
+                raise LLMProviderError("LLM criterion summary must be a string.")
+            if (
+                isinstance(confidence, bool)
+                or not isinstance(confidence, (int, float))
+                or not 0 <= confidence <= 1
+            ):
+                raise LLMProviderError(
+                    "LLM criterion confidence must be between 0 and 1."
+                )
+            if not isinstance(evidence_ids, list):
+                raise LLMProviderError(
+                    "LLM criterion result must include evidence_ids."
+                )
+            try:
+                supporting_evidence = [
+                    evidence_by_id[evidence_id]
+                    for evidence_id in evidence_ids
+                ]
+            except KeyError as error:
+                raise LLMProviderError(
+                    "LLM referenced evidence outside the supplied collection."
+                ) from error
+            if status == "satisfied" and not supporting_evidence:
+                raise LLMProviderError(
+                    "LLM cannot satisfy a criterion without supporting evidence."
+                )
+            results[criterion_id] = {
+                "status": status,
+                "summary": summary,
+                "confidence": confidence,
+                "evidence": supporting_evidence,
+            }
+
+        if set(results) != set(criteria_by_id):
+            raise LLMProviderError(
+                "LLM did not return a result for every criterion."
+            )
+        return results

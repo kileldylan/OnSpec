@@ -1216,11 +1216,27 @@ def process_next_reverification_run(
             stage="LLM evaluation",
         ) from error
 
-    # Run per-criterion analysis
-    execute_criteria(
-        verification=verification,
-        evidence=current_evidence,
-    )
+    try:
+        execute_criteria(
+            verification=verification,
+            evidence=current_evidence,
+            evaluator=evaluator,
+        )
+    except LLMProviderError as error:
+        logger.exception(
+            "LLM criterion evaluation failed for verification run %s.",
+            run.id,
+        )
+        complete_reverification_run(
+            run_id=run.id,
+            status="failed",
+            summary="LLM criterion evaluation failed. See backend logs.",
+            confidence=0.0,
+        )
+        raise VerificationProcessingError(
+            run_id=run.id,
+            stage="LLM criterion evaluation",
+        ) from error
 
     criteria_conclusion = _criteria_outcome_for_verification(verification)
     if criteria_conclusion is not None:

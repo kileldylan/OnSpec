@@ -517,7 +517,7 @@ def _build_criterion_summary(criterion, valid_evidence, invalid_evidence):
 
 
 @transaction.atomic
-def execute_criteria(*, verification, evidence=None):
+def execute_criteria(*, verification, evidence=None, evaluator=None):
     """Evaluate every active criterion against the supplied evidence with precise analysis."""
 
     if evidence is None:
@@ -527,9 +527,44 @@ def execute_criteria(*, verification, evidence=None):
             status__in=["valid", "invalid"],
         ).select_related("changed_file", "changed_file__commit")
     evidence = list(evidence)
+    criteria = list(list_active_criteria(requirement=verification.requirement))
+    llm_results = None
+    evaluate_criteria = getattr(evaluator, "evaluate_criteria", None)
+    if callable(evaluate_criteria) and criteria:
+        eligible_evidence = [
+            item
+            for item in evidence
+            if item.status == "valid"
+            and effective_evidence_type(item) is not None
+        ]
+        llm_results = evaluate_criteria(
+            verification.requirement,
+            criteria,
+            eligible_evidence,
+        )
+
     results = []
 
-    for criterion in list_active_criteria(requirement=verification.requirement):
+    for criterion in criteria:
+        if llm_results is not None:
+            result = llm_results[criterion.pk]
+            results.append(record_criterion_verification(
+                verification=verification,
+                criterion=criterion,
+                status=result["status"],
+                summary=result["summary"],
+                confidence=result["confidence"],
+                metadata={
+                    "evidence_types": sorted(
+                        _expected_evidence_types(criterion),
+                    ),
+                    "evidence_count": len(result["evidence"]),
+                    "evaluator": "llm",
+                },
+                evidence=result["evidence"],
+            ))
+            continue
+
         valid_evidence = _matching_evidence(
             criterion=criterion,
             evidence=[item for item in evidence if item.status == "valid"],
