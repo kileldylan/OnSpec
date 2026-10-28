@@ -9,6 +9,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from ACI_backend.integrations.github.client import GitHubAPIError
 from ACI_backend.integrations.github.service import (
+    process_github_installation_event,
     process_github_evidence_event,
     process_pull_request_event,
 )
@@ -16,6 +17,8 @@ from ACI_backend.integrations.github.service import (
 logger = logging.getLogger(__name__)
 
 PULL_REQUEST_ACTIONS = {"opened", "reopened", "synchronize", "closed"}
+INSTALLATION_ACTIONS = {"created", "deleted"}
+INSTALLATION_REPOSITORIES_ACTIONS = {"added", "removed"}
 CHECK_RUN_ACTIONS = {"created", "rerequested", "completed"}
 
 
@@ -110,6 +113,30 @@ def github_webhook(request):
                 },
                 status=200,
             )
+        elif event == "installation":
+            if not isinstance(payload.get("installation"), dict):
+                return JsonResponse(
+                    {"detail": "Invalid installation payload."},
+                    status=400,
+                )
+            if payload.get("action") not in INSTALLATION_ACTIONS:
+                return JsonResponse(
+                    {"message": "Webhook action ignored.", "event": event},
+                    status=202,
+                )
+            process_github_installation_event(event, payload)
+        elif event == "installation_repositories":
+            if not isinstance(payload.get("installation"), dict):
+                return JsonResponse(
+                    {"detail": "Invalid installation payload."},
+                    status=400,
+                )
+            if payload.get("action") not in INSTALLATION_REPOSITORIES_ACTIONS:
+                return JsonResponse(
+                    {"message": "Webhook action ignored.", "event": event},
+                    status=202,
+                )
+            process_github_installation_event(event, payload)
         elif event == "check_run":
             if not isinstance(payload.get("repository"), dict):
                 return JsonResponse({"detail": "Invalid check run payload."}, status=400)

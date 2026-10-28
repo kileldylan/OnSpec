@@ -77,14 +77,19 @@ def process_pull_request_event(payload):
     # 1. Create or update repository
     # ---------------------------------------------------------
 
+    repository_defaults = {
+        "owner": repository_data["owner"]["login"],
+        "name": repository_data["name"],
+        "full_name": repository_data["full_name"],
+        "default_branch": repository_data["default_branch"],
+    }
+    installation = payload.get("installation")
+    if isinstance(installation, dict) and isinstance(installation.get("id"), int):
+        repository_defaults["github_installation_id"] = installation["id"]
+
     repository, _ = Repository.objects.update_or_create(
         github_id=repository_data["id"],
-        defaults={
-            "owner": repository_data["owner"]["login"],
-            "name": repository_data["name"],
-            "full_name": repository_data["full_name"],
-            "default_branch": repository_data["default_branch"],
-        },
+        defaults=repository_defaults,
     )
 
     # ---------------------------------------------------------
@@ -119,7 +124,10 @@ def process_pull_request_event(payload):
     # 3. Retrieve commits from GitHub
     # ---------------------------------------------------------
 
-    github_client = GitHubClient(token=settings.GITHUB_ACCESS_TOKEN)
+    github_client = GitHubClient(
+        token=settings.GITHUB_ACCESS_TOKEN or None,
+        installation_id=repository.github_installation_id,
+    )
 
     commits = github_client.get_pull_request_commits(
         owner=repository.owner,
@@ -173,6 +181,20 @@ def process_pull_request_event(payload):
                 pull_request,
             )
 
+    if pull_request.requirement_links.exists():
+        if repository.github_installation_id:
+            from ACI_backend.integrations.github.outputs import (
+                publish_delivery_result,
+            )
+
+            publish_delivery_result(pull_request)
+        else:
+            logger.warning(
+                "GitHub delivery output was not published for %s because no "
+                "GitHub App installation is linked.",
+                pull_request,
+            )
+
     return pull_request
 
 
@@ -207,10 +229,87 @@ def ingest_commit_files(commit, github_commit):
 
 
 @transaction.atomic
+def process_github_installation_event(event, payload):
+    """Track repositories added to or removed from the GitHub App install."""
+
+    installation = payload.get("installation")
+    if not isinstance(installation, dict) or not isinstance(
+        installation.get("id"), int
+    ):
+        raise ValueError("Invalid GitHub App installation payload.")
+    installation_id = installation["id"]
+    action = payload.get("action")
+
+    if event == "installation" and action == "deleted":
+        Repository.objects.filter(
+            github_installation_id=installation_id,
+        ).update(github_installation_id=None)
+        return []
+
+    if event == "installation_repositories" and action == "removed":
+        removed = payload.get("repositories_removed", [])
+        if not isinstance(removed, list):
+            raise ValueError("Invalid removed repository list.")
+        for repository_data in removed:
+            if not isinstance(repository_data, dict) or not isinstance(
+                repository_data.get("id"), int
+            ):
+                raise ValueError("Invalid removed repository.")
+            Repository.objects.filter(
+                github_id=repository_data["id"],
+                github_installation_id=installation_id,
+            ).update(github_installation_id=None)
+        return []
+
+    if event == "installation":
+        if action != "created":
+            return []
+        repositories = payload.get("repositories", [])
+    elif event == "installation_repositories" and action == "added":
+        repositories = payload.get("repositories_added", [])
+    else:
+        return []
+
+    if not isinstance(repositories, list):
+        raise ValueError("Invalid added repository list.")
+    saved_repositories = []
+    for repository_data in repositories:
+        owner = repository_data.get("owner") if isinstance(repository_data, dict) else None
+        if (
+            not isinstance(repository_data, dict)
+            or not isinstance(repository_data.get("id"), int)
+            or not isinstance(repository_data.get("name"), str)
+            or not isinstance(repository_data.get("full_name"), str)
+            or not isinstance(repository_data.get("default_branch"), str)
+            or not isinstance(owner, dict)
+            or not isinstance(owner.get("login"), str)
+        ):
+            raise ValueError("Invalid added repository.")
+        repository, _ = Repository.objects.update_or_create(
+            github_id=repository_data["id"],
+            defaults={
+                "owner": owner["login"],
+                "name": repository_data["name"],
+                "full_name": repository_data["full_name"],
+                "default_branch": repository_data["default_branch"],
+                "github_installation_id": installation_id,
+            },
+        )
+        saved_repositories.append(repository)
+    return saved_repositories
+
+
+@transaction.atomic
 def process_github_evidence_event(event, payload):
     """Ingest a GitHub check or status event for linked requirements."""
 
     repository_data = payload["repository"]
+    check_run = payload.get("check_run") if event == "check_run" else None
+    if (
+        isinstance(check_run, dict)
+        and check_run.get("name") == "ACI / Delivery Verification"
+    ):
+        return []
     repository = Repository.objects.filter(
         github_id=repository_data["id"],
     ).first()

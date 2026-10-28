@@ -68,3 +68,37 @@ def test_github_api_request_errors_are_wrapped():
                 repository="aci-demo",
                 pull_request_number=1,
             )
+
+
+def test_github_app_installation_token_authenticates_api_requests():
+    with patch(
+        "ACI_backend.integrations.github.client.requests.Session.post"
+    ) as mock_post, patch(
+        "ACI_backend.integrations.github.client.requests.Session.get"
+    ) as mock_get:
+        token_response = Mock()
+        token_response.json.return_value = {"token": "installation-token"}
+        token_response.raise_for_status.return_value = None
+        mock_post.return_value = token_response
+
+        check_response = Mock()
+        check_response.json.return_value = {"check_runs": []}
+        check_response.raise_for_status.return_value = None
+        check_response.status_code = 200
+        mock_get.return_value = check_response
+
+        client = GitHubClient(installation_id=123)
+        with patch.object(client, "_app_jwt", return_value="app-jwt"):
+            result = client.list_check_runs(
+                "aci",
+                "delivery",
+                check_name="ACI / Delivery Verification",
+                head_sha="a" * 40,
+            )
+
+    assert result == {"check_runs": []}
+    mock_post.assert_called_once()
+    assert mock_post.call_args.kwargs["headers"]["Authorization"] == "Bearer app-jwt"
+    assert mock_get.call_args.kwargs["headers"]["Authorization"] == (
+        "Bearer installation-token"
+    )

@@ -24,7 +24,9 @@ environ.Env.read_env(BACKEND_DIR / ".env")
 # =============================================================================
 
 GITHUB_WEBHOOK_SECRET = env("GITHUB_WEBHOOK_SECRET")
-GITHUB_ACCESS_TOKEN = env("GITHUB_ACCESS_TOKEN")
+GITHUB_ACCESS_TOKEN = env("GITHUB_ACCESS_TOKEN", default="")
+GITHUB_APP_ID = env("GITHUB_APP_ID", default="")
+GITHUB_APP_PRIVATE_KEY = env("GITHUB_APP_PRIVATE_KEY", default="")
 GITHUB_API_TIMEOUT = env.int("GITHUB_API_TIMEOUT", default=15)
 GITHUB_OAUTH_CLIENT_ID = env("GITHUB_OAUTH_CLIENT_ID", default="")
 GITHUB_OAUTH_CLIENT_SECRET = env("GITHUB_OAUTH_CLIENT_SECRET", default="")

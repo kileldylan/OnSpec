@@ -34,6 +34,11 @@ class Repository(models.Model):
         default="main",
     )
 
+    github_installation_id = models.PositiveBigIntegerField(
+        null=True,
+        blank=True,
+    )
+
     is_active = models.BooleanField(default=True)
 
     members = models.ManyToManyField(
@@ -78,6 +83,8 @@ class PullRequest(models.Model):
     )
 
     is_merged = models.BooleanField(default=False)
+    aci_comment_id = models.PositiveBigIntegerField(null=True, blank=True)
+    aci_comment_hash = models.CharField(max_length=64, blank=True)
 
     created_at = models.DateTimeField()
     updated_at = models.DateTimeField()

@@ -217,7 +217,8 @@ def collect_repository_code_evidence(
         return []
 
     github_client = github_client or GitHubClient(
-        token=settings.GITHUB_ACCESS_TOKEN,
+        token=settings.GITHUB_ACCESS_TOKEN or None,
+        installation_id=pull_request.repository.github_installation_id,
     )
     tree = github_client.get_repository_tree(
         pull_request.repository.owner,
@@ -1262,4 +1263,19 @@ def process_next_reverification_run(
         **conclusion,
     )
     create_delivery_decision(verification=verification)
+    if (
+        verification.pull_request
+        and verification.pull_request.repository.github_installation_id
+    ):
+        from ACI_backend.integrations.github.outputs import (
+            publish_delivery_result,
+        )
+
+        publish_delivery_result(verification.pull_request)
+    elif verification.pull_request:
+        logger.warning(
+            "GitHub delivery output was not published for %s because no "
+            "GitHub App installation is linked.",
+            verification.pull_request,
+        )
     return verification

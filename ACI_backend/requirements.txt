@@ -16,6 +16,7 @@ pytest==9.1.1
 pytest-cov==7.1.0
 pytest-django==4.14.0
 requests==2.34.2
+PyJWT[crypto]>=2.8,<3
 sqlparse==0.6.0
 tomli==2.4.1
 typing_extensions==4.16.0
