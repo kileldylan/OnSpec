@@ -104,6 +104,11 @@ class GitHubClient:
     def get_commit(self, owner, repository, sha):
         return self._request(f"/repos/{owner}/{repository}/commits/{sha}")
 
+    def get_issue(self, owner, repository, issue_number):
+        return self._request(
+            f"/repos/{owner}/{repository}/issues/{issue_number}"
+        )
+
     def get_pull_request_commits(self, owner, repository, pull_request_number):
         endpoint = f"/repos/{owner}/{repository}/pulls/{pull_request_number}/commits"
         return self._request(endpoint)

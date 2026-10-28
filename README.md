@@ -44,7 +44,7 @@ ACI is installed as a **GitHub App**. Once installed on a repository (or organiz
 
 ### Trigger
 - `pull_request` events (`opened`, `synchronize`, `reopened`, etc.).
-- Linked Jira requirements can be detected from PR title/body when Jira is configured. Manual requirements are also supported; GitHub Issues and Linear linking are future integrations.
+- A same-repository GitHub Issue referenced as `#123` can be linked automatically. Existing manual requirements can also be linked by external ID or title; Jira linking remains optional when configured.
 
 ### Evidence collection (automatic)
 - Diff and changed files
@@ -137,7 +137,7 @@ GitHub App webhook
 
 The GitHub App is the repository integration and owns the PR-facing workflow. Its installation token is minted for the installation that delivered the webhook; a personal access token is retained only for local-development read access. Check Runs and PR comments are written only with a GitHub App installation token. The web console's optional user login and GitHub-account link control console visibility only; repository authorization is granted to the App installation.
 
-Verification workers process queued runs with `python ACI_backend/manage.py process_reverification_runs` from the repository root. Check/status webhooks are ingested as evidence, while ACI's own Check Run is excluded to avoid feeding its output back into evaluation. The delivery decision is rule-based and conservative; an LLM can evaluate only the supplied evidence and cannot choose the final decision.
+GitHub webhooks are signature-checked and saved to a durable database inbox, then acknowledged immediately. Run the separate persistent worker with `python ACI_backend/manage.py run_aci_worker` from the repository root (or configure that command as a continuously running worker service sharing the backend database and environment). It processes webhook events and verification runs independently of HTTP requests; failed webhook jobs are retried and visible in Django Admin. Check/status webhooks are ingested as evidence, while ACI's own Check Run is excluded to avoid feedback loops. The delivery decision is rule-based and conservative; an LLM can evaluate only the supplied evidence and cannot choose the final decision.
 
 The public web landing page points repositories to GitHub App installation and explains that review happens on the PR. Login and registration are only for the optional console, whose small navigation surface is for pull requests, requirements, and audit history. Analytics and detailed evidence views remain secondary/legacy routes rather than the merge-decision interface.
 
@@ -149,7 +149,7 @@ Configure `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET`
 
 ## Current Status
 
-Early-stage implementation. The backend has GitHub App installation-token support, evidence-backed deterministic decisions, and GitHub Check/comment publishing. Verification processing is a separately run worker command, not a managed queue service. Jira linking is optional; repository config files, Linear, bulk reporting, and production-grade job scheduling are not included yet.
+Early-stage implementation. The backend has GitHub App installation-token support, a durable webhook inbox, a persistent worker command for automatic processing, evidence-backed deterministic decisions, and GitHub Check/comment publishing. Hosting still requires a separate always-on worker process running `python ACI_backend/manage.py run_aci_worker`; webhook requests only enqueue work. PRs can link same-repository GitHub Issues via `#number`, or existing manual requirements via external ID or title. Jira linking is optional; repository config files, Linear, bulk reporting, and managed queue infrastructure are not included yet.
 
 ---
 
@@ -157,9 +157,9 @@ Early-stage implementation. The backend has GitHub App installation-token suppor
 
 1. Configure the GitHub App credentials and webhook secret in the backend, then set the frontend app slug.
 2. Install the ACI GitHub App on a repository with the permissions listed above.
-3. Link a Jira requirement or create a manual requirement with clear required criteria.
-4. Open or update a PR and run the verification worker.
-5. Review the Check and single updated comment.
+3. Ensure the PR references a GitHub Issue (`#123`), a Jira key, or the external ID/title of a manual requirement in ACI.
+4. Open or update the PR; the webhook queues the event and the persistent worker collects evidence and evaluates criteria.
+5. Review the in-progress Check, then the completed decision and single updated comment.
 
 For configuration, audit history, or pilot discussion: [link to contact / docs].
 

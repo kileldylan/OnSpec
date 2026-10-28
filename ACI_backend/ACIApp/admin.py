@@ -20,6 +20,7 @@ from .models import (
     DeliveryDecision,
     VerificationRun,
     TestExecution,
+    GitHubWebhookJob,
 )
 
 
@@ -491,6 +492,30 @@ class VerificationRunAdmin(admin.ModelAdmin):
                 return f'{int(seconds // 3600)}h {int((seconds % 3600) // 60)}m'
         return '—'
     duration.short_description = 'Duration'
+
+
+@admin.register(GitHubWebhookJob)
+class GitHubWebhookJobAdmin(admin.ModelAdmin):
+    list_display = (
+        "delivery_id",
+        "event",
+        "status",
+        "attempts",
+        "received_at",
+        "completed_at",
+    )
+    list_filter = ("event", "status")
+    search_fields = ("delivery_id", "last_error")
+    readonly_fields = (
+        "delivery_id",
+        "event",
+        "payload",
+        "attempts",
+        "last_error",
+        "received_at",
+        "started_at",
+        "completed_at",
+    )
 
 
 @admin.register(TestExecution)

@@ -10,6 +10,7 @@ from rest_framework.test import APIClient
 
 from ACI_backend.ACIApp.models import (
     Commit,
+    GitHubWebhookJob,
     PullRequest,
     Repository,
     Requirement,
@@ -17,6 +18,7 @@ from ACI_backend.ACIApp.models import (
 )
 from ACI_backend.integrations.github.client import GitHubAPIError
 from ACI_backend.integrations.github.service import process_pull_request_event
+from ACI_backend.integrations.github.worker import process_next_github_webhook
 
 
 @pytest.fixture
@@ -61,6 +63,123 @@ def test_github_webhook_accepts_valid_signature(api_client):
 
 
 @pytest.mark.django_db
+def test_github_webhook_deduplicates_delivery_id(api_client):
+    payload = {
+        "action": "opened",
+        "repository": {"id": 123},
+        "pull_request": {"number": 1},
+    }
+    signature, body = create_github_signature(payload)
+
+    for _ in range(2):
+        response = api_client.post(
+            reverse("github-webhook"),
+            data=body,
+            content_type="application/json",
+            HTTP_X_GITHUB_EVENT="pull_request",
+            HTTP_X_GITHUB_DELIVERY="same-delivery",
+            HTTP_X_HUB_SIGNATURE_256=signature,
+        )
+        assert response.status_code == 202
+
+    assert GitHubWebhookJob.objects.count() == 1
+
+
+@pytest.mark.django_db
+@patch("ACI_backend.integrations.github.service.GitHubClient")
+def test_pull_request_links_github_issues_and_manual_requirements(
+    mock_github_client,
+):
+    repository = Repository.objects.create(
+        github_id=987610,
+        owner="aci",
+        name="issue-linking",
+        full_name="aci/issue-linking",
+    )
+    manual_by_title = Requirement.objects.create(
+        repository=repository,
+        external_id="MANUAL-1",
+        source="manual",
+        title="Manual reset requirement",
+    )
+    manual_by_id = Requirement.objects.create(
+        repository=repository,
+        external_id="MANUAL-2",
+        source="manual",
+        title="Another requirement",
+    )
+    mock_github_client.return_value.get_pull_request_commits.return_value = []
+    mock_github_client.return_value.get_issue.return_value = {
+        "number": 42,
+        "title": "Issue linked from GitHub",
+        "body": (
+            "Acceptance criteria:\n"
+            "- The reset endpoint returns a token.\n"
+            "- The token expires after use."
+        ),
+        "html_url": "https://github.com/aci/issue-linking/issues/42",
+        "state": "open",
+    }
+
+    pull_request = process_pull_request_event(
+        {
+            "repository": {
+                "id": repository.github_id,
+                "name": repository.name,
+                "full_name": repository.full_name,
+                "default_branch": repository.default_branch,
+                "owner": {"login": repository.owner},
+            },
+            "pull_request": {
+                "id": 987611,
+                "number": 12,
+                "title": "Implement Manual reset requirement",
+                "body": "Closes #42 and tracks MANUAL-2.",
+                "state": "open",
+                "merged": False,
+                "created_at": "2026-10-28T07:00:00Z",
+                "updated_at": "2026-10-28T07:00:00Z",
+                "user": {"login": "aci"},
+                "head": {
+                    "ref": "feature/reset",
+                    "sha": "a" * 40,
+                },
+                "base": {
+                    "ref": "main",
+                    "sha": "b" * 40,
+                },
+            },
+        }
+    )
+
+    assert set(
+        pull_request.requirement_links.values_list("requirement_id", flat=True)
+    ) == {
+        manual_by_title.id,
+        manual_by_id.id,
+        Requirement.objects.get(
+            repository=repository,
+            source="github",
+            external_id="42",
+        ).id,
+    }
+    github_requirement = Requirement.objects.get(
+        repository=repository,
+        source="github",
+        external_id="42",
+    )
+    assert github_requirement.url == (
+        "https://github.com/aci/issue-linking/issues/42"
+    )
+    assert github_requirement.criteria.filter(is_active=True).count() == 2
+    mock_github_client.return_value.get_issue.assert_called_once_with(
+        "aci",
+        "issue-linking",
+        42,
+    )
+
+
+@pytest.mark.django_db
 def test_github_installation_events_track_repository_access(api_client):
     installation_id = 456789
     created_payload = {
@@ -86,7 +205,8 @@ def test_github_installation_events_track_repository_access(api_client):
         HTTP_X_HUB_SIGNATURE_256=signature,
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
+    process_next_github_webhook()
     repository = Repository.objects.get(github_id=456790)
     assert repository.github_installation_id == installation_id
 
@@ -103,7 +223,8 @@ def test_github_installation_events_track_repository_access(api_client):
         HTTP_X_HUB_SIGNATURE_256=signature,
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
+    process_next_github_webhook()
     repository.refresh_from_db()
     assert repository.github_installation_id is None
 
@@ -230,10 +351,13 @@ def test_github_webhook_rejects_invalid_signature(api_client):
 
 @pytest.mark.django_db
 @patch(
-    "ACI_backend.integrations.github.webhooks.process_pull_request_event",
+    "ACI_backend.integrations.github.service.process_github_webhook",
     side_effect=GitHubAPIError("GitHub API request failed."),
 )
-def test_github_webhook_reports_github_api_failure(_mock_process, api_client):
+def test_github_webhook_queues_work_and_worker_records_failure(
+    _mock_process,
+    api_client,
+):
     payload = {
         "action": "opened",
         "repository": {},
@@ -249,8 +373,16 @@ def test_github_webhook_reports_github_api_failure(_mock_process, api_client):
         HTTP_X_HUB_SIGNATURE_256=signature,
     )
 
-    assert response.status_code == 502
-    assert response.json() == {"detail": "GitHub API request failed."}
+    assert response.status_code == 202
+    job = GitHubWebhookJob.objects.get()
+    assert job.status == "queued"
+
+    process_next_github_webhook()
+
+    job.refresh_from_db()
+    assert job.status == "queued"
+    assert job.attempts == 1
+    assert "GitHub API request failed" in job.last_error
 
 
 @pytest.mark.django_db
@@ -335,9 +467,12 @@ def test_github_pull_request_creates_repository_and_pull_request(
         content_type="application/json",
         HTTP_X_GITHUB_EVENT="pull_request",
         HTTP_X_HUB_SIGNATURE_256=signature,
+        HTTP_X_GITHUB_DELIVERY="delivery-create-pr",
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
+    assert Repository.objects.filter(github_id=123456).count() == 0
+    process_next_github_webhook()
 
     repository = Repository.objects.get(
         github_id=123456
@@ -441,9 +576,11 @@ def test_github_pull_request_ingests_commits(
         content_type="application/json",
         HTTP_X_GITHUB_EVENT="pull_request",
         HTTP_X_HUB_SIGNATURE_256=signature,
+        HTTP_X_GITHUB_DELIVERY="delivery-ingest-commits",
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 202
+    process_next_github_webhook()
 
     commit = Commit.objects.get(
         sha="cccccccccccccccccccccccccccccccccccccccc"

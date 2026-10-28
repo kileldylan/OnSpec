@@ -1,4 +1,5 @@
 import logging
+import re
 
 from django.conf import settings
 from django.db import transaction
@@ -8,6 +9,7 @@ from ACI_backend.ACIApp.models import (
     Commit,
     PullRequest,
     Repository,
+    Requirement,
 )
 from ACI_backend.integrations.github.accounts import (
     link_repository_github_members,
@@ -22,9 +24,13 @@ from ACI_backend.integrations.verification.service import (
     ingest_github_evidence,
     start_initial_verification,
 )
+from ACI_backend.integrations.verification.criteria import (
+    sync_requirement_criteria_from_text,
+)
 
 
 logger = logging.getLogger(__name__)
+GITHUB_ISSUE_REFERENCE = re.compile(r"(?<![\w/])#(\d+)\b")
 
 
 def ingest_jira_links_for_pull_request(*, pull_request, payload):
@@ -55,6 +61,80 @@ def ingest_jira_links_for_pull_request(*, pull_request, payload):
             pull_request,
         )
         return []
+
+
+def link_pull_request_requirements(*, pull_request, payload, github_client):
+    """Link manual requirements and same-repository GitHub issues referenced by a PR."""
+
+    pull_request_data = payload.get("pull_request", {})
+    title = pull_request_data.get("title", "")
+    body = pull_request_data.get("body", "") or ""
+    text = "\n".join(value for value in (title, body) if isinstance(value, str))
+    normalized_text = " ".join(text.casefold().split())
+    repository = pull_request.repository
+    linked = []
+
+    for requirement in repository.requirements.all():
+        external_id = requirement.external_id.strip()
+        title_match = " ".join(requirement.title.casefold().split())
+        external_match = bool(
+            external_id
+            and re.search(
+                rf"(?<![A-Za-z0-9]){re.escape(external_id)}(?![A-Za-z0-9])",
+                text,
+                flags=re.IGNORECASE,
+            )
+        )
+        title_match_found = len(title_match) >= 6 and title_match in normalized_text
+        if external_match or title_match_found:
+            linked.append(requirement)
+
+    issue_numbers = sorted(
+        {int(match.group(1)) for match in GITHUB_ISSUE_REFERENCE.finditer(text)}
+    )
+    for issue_number in issue_numbers:
+        requirement = repository.requirements.filter(
+            external_id__in=[str(issue_number), f"#{issue_number}"],
+        ).first()
+        if requirement is None:
+            issue = github_client.get_issue(
+                repository.owner,
+                repository.name,
+                issue_number,
+            )
+            if "pull_request" in issue:
+                continue
+            issue_title = issue.get("title")
+            issue_body = issue.get("body") or ""
+            if not isinstance(issue_title, str) or not issue_title.strip():
+                raise ValueError(
+                    f"GitHub issue #{issue_number} has no usable title."
+                )
+            requirement, _ = Requirement.objects.update_or_create(
+                repository=repository,
+                source="github",
+                external_id=str(issue_number),
+                defaults={
+                    "title": issue_title,
+                    "description": issue_body,
+                    "url": issue.get("html_url", ""),
+                    "status": (
+                        "completed"
+                        if issue.get("state") == "closed"
+                        else "open"
+                    ),
+                },
+            )
+            if issue_body:
+                sync_requirement_criteria_from_text(
+                    requirement=requirement,
+                    text=issue_body,
+                )
+        linked.append(requirement)
+
+    for requirement in {item.id: item for item in linked}.values():
+        pull_request.requirement_links.get_or_create(requirement=requirement)
+    return list({item.id: item for item in linked}.values())
 
 
 @transaction.atomic
@@ -128,6 +208,11 @@ def process_pull_request_event(payload):
         token=settings.GITHUB_ACCESS_TOKEN or None,
         installation_id=repository.github_installation_id,
     )
+    link_pull_request_requirements(
+        pull_request=pull_request,
+        payload=payload,
+        github_client=github_client,
+    )
 
     commits = github_client.get_pull_request_commits(
         owner=repository.owner,
@@ -196,6 +281,60 @@ def process_pull_request_event(payload):
             )
 
     return pull_request
+
+
+def process_github_webhook(*, event, payload):
+    """Dispatch a queued webhook event and schedule verification from new evidence."""
+
+    if event == "pull_request":
+        return process_pull_request_event(payload)
+    if event in {"installation", "installation_repositories"}:
+        return process_github_installation_event(event, payload)
+    if event not in {"check_run", "status"}:
+        return []
+
+    if event == "check_run":
+        check_run = payload.get("check_run", {})
+        if (
+            check_run.get("name") == "ACI / Delivery Verification"
+            or payload.get("action") != "completed"
+        ):
+            return []
+    elif payload.get("state") == "pending":
+        return []
+
+    evidence = process_github_evidence_event(event, payload, changed_only=True)
+    if not evidence:
+        return []
+
+    pull_requests = {}
+    for item in evidence:
+        if item.pull_request_id:
+            pull_requests[item.pull_request_id] = item.pull_request
+
+    for pull_request in pull_requests.values():
+        queued = False
+        for requirement in pull_request.requirement_links.select_related(
+            "requirement",
+        ):
+            try:
+                start_initial_verification(
+                    requirement=requirement.requirement,
+                    pull_request=pull_request,
+                )
+                queued = True
+            except ValueError:
+                logger.warning(
+                    "Verification deferred for %s because no changed file is available.",
+                    pull_request,
+                )
+        if queued and pull_request.repository.github_installation_id:
+            from ACI_backend.integrations.github.outputs import (
+                publish_delivery_result,
+            )
+
+            publish_delivery_result(pull_request)
+    return evidence
 
 
 def ingest_commit_files(commit, github_commit):
@@ -300,7 +439,7 @@ def process_github_installation_event(event, payload):
 
 
 @transaction.atomic
-def process_github_evidence_event(event, payload):
+def process_github_evidence_event(event, payload, *, changed_only=False):
     """Ingest a GitHub check or status event for linked requirements."""
 
     repository_data = payload["repository"]
@@ -366,4 +505,5 @@ def process_github_evidence_event(event, payload):
         commit=commit,
         event=event,
         payload=payload,
+        changed_only=changed_only,
     )

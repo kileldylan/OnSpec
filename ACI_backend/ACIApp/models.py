@@ -16,6 +16,40 @@ class GitHubAccount(models.Model):
         return f"{self.github_login} ({self.user})"
 
 
+class GitHubWebhookJob(models.Model):
+    """Durable inbox item for processing a GitHub webhook outside the request."""
+
+    STATUS_CHOICES = [
+        ("queued", "Queued"),
+        ("running", "Running"),
+        ("completed", "Completed"),
+        ("failed", "Failed"),
+    ]
+
+    delivery_id = models.CharField(max_length=100, unique=True)
+    event = models.CharField(max_length=50)
+    payload = models.JSONField()
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="queued",
+    )
+    attempts = models.PositiveSmallIntegerField(default=0)
+    last_error = models.TextField(blank=True)
+    available_at = models.DateTimeField()
+    received_at = models.DateTimeField(auto_now_add=True)
+    started_at = models.DateTimeField(null=True, blank=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["status", "available_at", "received_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.event} delivery {self.delivery_id} - {self.status}"
+
+
 class Repository(models.Model):
     """A GitHub repository connected to ACI."""
 
