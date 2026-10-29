@@ -174,16 +174,20 @@ ASGI_APPLICATION = "ACI_backend.asgi.application"
 # DATABASE
 # =============================================================================
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": env("DATABASE_NAME"),
-        "USER": env("DATABASE_USER"),
-        "PASSWORD": env("DATABASE_PASSWORD"),
-        "HOST": env("DATABASE_HOST", default="localhost"),
-        "PORT": env("DATABASE_PORT", default="5432"),
+DATABASE_URL = env("DATABASE_URL", default="")
+if DATABASE_URL:
+    DATABASES = {"default": env.db_url("DATABASE_URL")}
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": env("DATABASE_NAME"),
+            "USER": env("DATABASE_USER"),
+            "PASSWORD": env("DATABASE_PASSWORD"),
+            "HOST": env("DATABASE_HOST", default="localhost"),
+            "PORT": env("DATABASE_PORT", default="5432"),
+        }
     }
-}
 
 # =============================================================================
 # PASSWORD VALIDATION

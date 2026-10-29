@@ -145,6 +145,8 @@ The public web landing page points repositories to GitHub App installation and e
 
 Configure `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET` in the backend environment. Configure `VITE_GITHUB_APP_SLUG` in the frontend to show the repository-install link. The app needs repository permissions for **Checks (read/write)**, **Contents (read)**, **Pull requests (read)**, and **Issues (read/write)**, and must subscribe to `pull_request`, `check_run`, and `status` events. Installation creation and permission-accepted events synchronize the repositories granted to the App. Installations should grant access only to repositories intended for verification.
 
+The backend accepts PostgreSQL settings either as `DATABASE_URL` or as `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_HOST`, and `DATABASE_PORT`. For local commands against Render data, use the database's external connection URL from Render and keep it in the ignored `ACI_backend/.env`; do not commit or share it.
+
 ---
 
 ## Current Status
