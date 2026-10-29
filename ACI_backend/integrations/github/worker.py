@@ -114,8 +114,17 @@ def _publish_failed_verification(run_id):
         "verification__pull_request__repository",
     ).get(pk=run_id)
     create_delivery_decision(verification=run.verification)
-    if run.verification.pull_request_id:
+    if (
+        run.verification.pull_request_id
+        and run.verification.pull_request.repository.github_installation_id
+    ):
         publish_delivery_result(run.verification.pull_request)
+    elif run.verification.pull_request_id:
+        logger.warning(
+            "Failed verification was saved, but its GitHub result was not "
+            "published because no installation is linked to %s.",
+            run.verification.pull_request,
+        )
 
 
 def _fail_running_verification(run_id):
@@ -133,7 +142,14 @@ def _fail_running_verification(run_id):
         summary="Verification worker failed. See backend logs.",
         confidence=0.0,
     )
-    _publish_failed_verification(run.id)
+    try:
+        _publish_failed_verification(run.id)
+    except Exception:
+        logger.exception(
+            "Verification run %s failed and was saved, but its GitHub result "
+            "could not be published.",
+            run.id,
+        )
     return True
 
 

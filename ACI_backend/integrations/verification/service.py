@@ -1265,13 +1265,12 @@ def process_next_reverification_run(
         ) from error
 
     criteria_conclusion = _criteria_outcome_for_verification(verification)
-    if criteria_conclusion is not None:
+    if criteria_conclusion is not None and conclusion["status"] != "failed":
         conclusion = {
             **conclusion,
             "status": criteria_conclusion["status"],
             "summary": criteria_conclusion["summary"],
             "confidence": criteria_conclusion["confidence"],
-            "evidence": list(current_evidence),
         }
 
     # Enhance the top-level summary with criterion results for more detail

@@ -6,6 +6,7 @@ from django.utils import timezone
 from ACI_backend.ACIApp.models import (
     ChangedFile,
     Commit,
+    Evidence,
     PullRequest,
     Repository,
     Requirement,
@@ -20,6 +21,9 @@ from ACI_backend.integrations.github.worker import (
     run_worker_iteration,
 )
 from ACI_backend.integrations.verification.service import claim_reverification_run
+from ACI_backend.integrations.verification.service import (
+    process_next_reverification_run,
+)
 
 
 def raise_after_claim(*, run_id, **_kwargs):
@@ -166,6 +170,7 @@ def test_unexpected_verification_error_fails_run_and_publishes(
         owner="aci",
         name="worker-failure",
         full_name="aci/worker-failure",
+        github_installation_id=987632,
     )
     pull_request = PullRequest.objects.create(
         repository=repository,
@@ -216,3 +221,97 @@ def test_unexpected_verification_error_fails_run_and_publishes(
     assert run.status == "failed"
     assert verification.status == "failed"
     mock_publish.assert_called_once_with(pull_request)
+
+
+@pytest.mark.django_db
+@patch(
+    "ACI_backend.integrations.verification.service._criteria_outcome_for_verification",
+    return_value={
+        "status": "partial",
+        "summary": "One criterion passed and one failed.",
+        "confidence": 0.5,
+    },
+)
+@patch("ACI_backend.integrations.verification.service.execute_criteria")
+@patch("ACI_backend.integrations.verification.service.ingest_changed_file_evidence")
+def test_failed_ci_conclusion_is_not_downgraded_by_criteria(
+    _mock_ingest,
+    _mock_criteria,
+    _mock_criteria_outcome,
+):
+    repository = Repository.objects.create(
+        github_id=987640,
+        owner="aci",
+        name="worker-ci-failure",
+        full_name="aci/worker-ci-failure",
+    )
+    pull_request = PullRequest.objects.create(
+        repository=repository,
+        github_id=987641,
+        number=24,
+        title="Add account tests",
+        author="aci",
+        source_branch="feature/tests",
+        target_branch="main",
+        base_sha="b" * 40,
+        head_sha="a" * 40,
+        created_at="2026-10-28T07:00:00Z",
+        updated_at="2026-10-28T07:00:00Z",
+    )
+    requirement = Requirement.objects.create(
+        repository=repository,
+        external_id="TEST-24",
+        source="manual",
+        title="Account behavior",
+    )
+    verification = Verification.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+    )
+    commit = Commit.objects.create(
+        repository=repository,
+        pull_request=pull_request,
+        sha=pull_request.head_sha,
+        message="Add account tests",
+        author="aci",
+        committed_at="2026-10-28T07:00:00Z",
+    )
+    changed_file = ChangedFile.objects.create(
+        commit=commit,
+        filename="tests/test_account.py",
+        status="added",
+    )
+    run = VerificationRun.objects.create(
+        verification=verification,
+        triggering_changed_file=changed_file,
+        reason="CI evidence changed",
+    )
+    Evidence.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+        commit=commit,
+        evidence_type="code",
+        status="valid",
+        description="Account implementation changed.",
+    )
+    Evidence.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+        commit=commit,
+        evidence_type="ci",
+        status="invalid",
+        description="CI failed.",
+        metadata={
+            "source": "github",
+            "head_sha": pull_request.head_sha,
+            "context": "pytest",
+            "state": "failure",
+        },
+    )
+
+    result = process_next_reverification_run(run_id=run.id)
+
+    run.refresh_from_db()
+    assert result.status == "failed"
+    assert "test or CI check failed" in result.summary
+    assert run.status == "failed"
