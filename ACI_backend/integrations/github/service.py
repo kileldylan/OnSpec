@@ -137,6 +137,50 @@ def link_pull_request_requirements(*, pull_request, payload, github_client):
     return list({item.id: item for item in linked}.values())
 
 
+def sync_pull_request_installation(payload):
+    """Persist the App installation before other PR processing can fail."""
+
+    installation = payload.get("installation")
+    if not isinstance(installation, dict):
+        return None
+    installation_id = installation.get("id")
+    if (
+        isinstance(installation_id, bool)
+        or not isinstance(installation_id, int)
+        or installation_id <= 0
+    ):
+        raise ValueError("Invalid GitHub App installation ID in pull request.")
+
+    repository_data = payload.get("repository")
+    owner = repository_data.get("owner") if isinstance(repository_data, dict) else None
+    if (
+        not isinstance(repository_data, dict)
+        or not isinstance(repository_data.get("id"), int)
+        or not isinstance(repository_data.get("name"), str)
+        or not isinstance(repository_data.get("full_name"), str)
+        or not isinstance(repository_data.get("default_branch"), str)
+        or not isinstance(owner, dict)
+        or not isinstance(owner.get("login"), str)
+    ):
+        raise ValueError("Invalid repository data in pull request webhook.")
+
+    repository, _ = Repository.objects.update_or_create(
+        github_id=repository_data["id"],
+        defaults={
+            "owner": owner["login"],
+            "name": repository_data["name"],
+            "full_name": repository_data["full_name"],
+            "default_branch": repository_data["default_branch"],
+            "github_installation_id": installation_id,
+        },
+    )
+    logger.info(
+        "Linked GitHub App installation to repository %s from PR webhook.",
+        repository.full_name,
+    )
+    return repository
+
+
 @transaction.atomic
 def process_pull_request_event(payload):
     """
@@ -287,6 +331,7 @@ def process_github_webhook(*, event, payload):
     """Dispatch a queued webhook event and schedule verification from new evidence."""
 
     if event == "pull_request":
+        sync_pull_request_installation(payload)
         return process_pull_request_event(payload)
     if event in {"installation", "installation_repositories"}:
         return process_github_installation_event(event, payload)

@@ -17,7 +17,10 @@ from ACI_backend.ACIApp.models import (
     RequirementPullRequest,
 )
 from ACI_backend.integrations.github.client import GitHubAPIError
-from ACI_backend.integrations.github.service import process_pull_request_event
+from ACI_backend.integrations.github.service import (
+    process_github_webhook,
+    process_pull_request_event,
+)
 from ACI_backend.integrations.github.worker import process_next_github_webhook
 
 
@@ -227,6 +230,45 @@ def test_github_installation_events_track_repository_access(api_client):
     process_next_github_webhook()
     repository.refresh_from_db()
     assert repository.github_installation_id is None
+
+
+@pytest.mark.django_db
+@patch("ACI_backend.integrations.github.service.GitHubClient")
+def test_pr_installation_is_saved_even_if_pr_ingestion_fails(mock_github_client):
+    installation_id = 456793
+    mock_github_client.return_value.get_pull_request_commits.side_effect = (
+        GitHubAPIError("GitHub API unavailable.")
+    )
+    payload = {
+        "action": "opened",
+        "installation": {"id": installation_id},
+        "repository": {
+            "id": 456794,
+            "name": "aci-test",
+            "full_name": "kileldylan/aci_test",
+            "default_branch": "main",
+            "owner": {"login": "kileldylan"},
+        },
+        "pull_request": {
+            "id": 456795,
+            "number": 25,
+            "title": "Add basic CI status check",
+            "body": "",
+            "state": "open",
+            "merged": False,
+            "created_at": "2026-10-29T07:00:00Z",
+            "updated_at": "2026-10-29T07:00:00Z",
+            "user": {"login": "kileldylan"},
+            "head": {"ref": "test-ci", "sha": "a" * 40},
+            "base": {"ref": "main", "sha": "b" * 40},
+        },
+    }
+
+    with pytest.raises(GitHubAPIError):
+        process_github_webhook(event="pull_request", payload=payload)
+
+    repository = Repository.objects.get(github_id=456794)
+    assert repository.github_installation_id == installation_id
 
 
 @pytest.mark.django_db
