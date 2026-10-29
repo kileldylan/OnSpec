@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from 'react-hot-toast';
 import { ThemeProvider } from './context/ThemeContext';
@@ -13,6 +13,7 @@ import Analytics from './components/Analytics';
 import PullRequests from './components/PullRequests';
 import PullRequestDetail from './components/PullRequestDetail';
 import Requirements from './components/Requirements';
+import HomePage from './components/HomePage';
 import ProtectedRoute from './components/ProtectedRoute';
 import { Login, Register } from './components/AuthPage';
 import { AuthProvider } from './context/AuthContext';
@@ -62,11 +63,13 @@ function App() {
             }}
           />
           <Routes>
+            <Route path="/" element={<HomePage />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
             <Route element={<ProtectedRoute />}>
-              <Route path="/" element={<Layout />}>
-              <Route index element={<Dashboard />} />
+              <Route element={<Layout />}>
+              <Route path="console" element={<Navigate to="/pull-requests" replace />} />
+              <Route path="overview" element={<Dashboard />} />
               <Route path="verifications" element={<VerificationList />} />
               <Route path="verifications/:id" element={<VerificationDetail />} />
               <Route path="evidence" element={<EvidencePage />} />

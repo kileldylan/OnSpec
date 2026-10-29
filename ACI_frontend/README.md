@@ -1,16 +1,21 @@
-# React + Vite
+# ACI Console
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+The console is a secondary interface for requirement setup and verification history. The primary review and merge workflow is in GitHub: ACI publishes a Checks API result and maintains one evidence-linked comment on each pull request. Linking a GitHub user account only controls optional console visibility; repository access for verification is granted to the GitHub App installation.
 
-Currently, two official plugins are available:
+## Product interface
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+The public home page explains and links to the GitHub App. Developers install the App and read delivery checks and the maintained evidence comment on their pull requests; they do not need to sign in to ACI for that workflow. Login and registration are only for the optional console used for requirement setup and audit history.
 
-## React Compiler
+## Local development
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+1. Install frontend dependencies with `npm install`.
+2. Set `VITE_GITHUB_APP_SLUG` to the GitHub App's URL slug to enable the repository installation link.
+3. Configure `VITE_API_URL` when the backend URL differs from the deployed default; local development uses the Vite proxy.
+4. Start the frontend with `npm run dev`.
 
-## Expanding the ESLint configuration
+The optional console is available at `/pull-requests` after sign-in. Audit history and requirements are available in its navigation; analytics and detailed evidence views are secondary routes.
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+## Validation
+
+- `npm run lint`
+- `npm run build`

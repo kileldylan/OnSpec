@@ -1,861 +1,170 @@
-# ACI — AI-Assisted Requirement Verification
+# ACI — Delivery Verification
 
-**ACI (Automated Compliance Intelligence)** is a developer-focused verification platform that answers a question existing code-review tools often don't answer:
+**ACI proves whether a pull request actually delivered the requirement, using the evidence already in your code, tests, and CI.**
 
-> **Did the team actually deliver what the requirement asked for?**
+It posts the result where engineering leads and reviewers already look: a GitHub Check and a single PR comment. No daily login, no new dashboard required for the core workflow.
 
-ACI connects the **requirement**, **Pull Request**, **code changes**, **tests**, **CI results**, and other available evidence into one verification chain.
-
-Instead of treating a PR as "good" simply because the code looks clean, ACI evaluates whether the requested work has actually been delivered and whether there is evidence supporting that conclusion.
+> From “the PR looks clean” to “we have evidence this criterion was delivered.”
 
 ---
 
 ## The Problem
 
-Modern development teams have excellent tools for writing and reviewing code.
+Teams have strong signals for code quality:
+- CI green
+- Linters and type checks pass
+- AI code reviewers approve the style and catch bugs
+- Tests exist and run
 
-GitHub, GitLab, Jira, Linear, AI code reviewers, CI systems, and testing frameworks can each answer different questions:
+They still lack a reliable signal for **requirement satisfaction**.
 
-* Does the code build?
-* Are there obvious bugs?
-* Does the PR follow coding standards?
-* Did the tests pass?
-* What task is this PR associated with?
+A PR can pass every technical gate while missing one or more acceptance criteria. The gap is usually discovered late—in QA, staging, or production—creating rework. For regulated or high-stakes work, reconstructing evidence after the fact is slow and incomplete.
 
-But there is still a critical gap:
-
-> **Does the submitted implementation satisfy the actual requirements of the task?**
-
-Consider a ticket:
-
-**PROJ-123 — Add authentication**
-
-Requirements:
-
-1. Users can log in with email and password.
-2. Invalid credentials are rejected.
-3. Successful authentication creates a session.
-4. Authentication failures are logged.
-5. Automated tests cover the authentication flow.
-
-A developer opens a PR.
-
-The PR may:
-
-* compile successfully,
-* pass linting,
-* contain clean code,
-* pass some tests,
-* receive a positive AI code review,
-
-while still missing requirement #4 or #5.
-
-ACI is designed to detect that gap.
+ACI closes that gap with an auditable, evidence-backed answer: **did this PR deliver the requested criteria?**
 
 ---
 
-# What ACI Does
+## What ACI Does
 
-ACI creates a chain:
+ACI builds a short verification chain for every relevant pull request:
+Requirement / Acceptance Criteria ↓ Linked Pull Request ↓ Commits + Changed Files + CI/Test Evidence ↓ Grounded Verification ↓ Deterministic Delivery Decision
 
-```text
-Requirement
-     ↓
-Acceptance Criteria
-     ↓
-Pull Request
-     ↓
-Commits
-     ↓
-Changed Files
-     ↓
-Evidence
-     ↓
-Verification
-     ↓
-Delivery Decision
-```
 
-The goal is to make software delivery **verifiable rather than assumed**.
+It surfaces the result as:
+1. A **GitHub Check** (can be required before merge).
+2. A **single, self-updating PR comment** that shows which criteria are verified, partial, or missing, with links to the supporting evidence.
+
+Everything else (history, audit trail, configuration) is secondary.
 
 ---
 
-# Core Concept
+## How It Works in GitHub (No Daily Login)
 
-ACI does not simply ask:
+ACI is installed as a **GitHub App**. Once installed on a repository (or organization), it works through webhooks and the Checks API. Developers and leads stay inside GitHub.
 
-> "Does this code look correct?"
+### Trigger
+- `pull_request` events (`opened`, `synchronize`, `reopened`, etc.).
+- A same-repository GitHub Issue referenced as `#123` can be linked automatically. Existing manual requirements can also be linked by external ID or title; Jira linking remains optional when configured.
 
-It asks:
+### Evidence collection (automatic)
+- Diff and changed files
+- Commits and SHAs
+- Existing CI check statuses / test results (via GitHub Checks or Statuses API)
+- Source snippets, test results, and evidence references associated with each criterion
 
-> "What was requested, what changed, what evidence exists, and how much of the requirement can we actually verify?"
+No manual upload. No screenshot chasing.
 
-That distinction is the foundation of ACI.
+### Output (where people already work)
+1. **Check Run** (Checks API)
+   Name example: `ACI / Delivery Verification`
+   - Stays `in_progress` while verification is queued; only a fully verified delivery concludes `success`. Partial, missing, stale, and failed evidence conclude `failure`.
+   - Markdown summary with criterion-level status.
+   - Can be set as a required status check in branch protection / rulesets.
 
----
+2. **One PR comment** (created or updated in place)
+   - Clear list of criteria: verified / partial / missing.
+   - Short evidence pointers (file, test, commit SHA).
+   - The same comment is edited in place; unchanged reports are not rewritten.
 
-# Example
+### What users do
+- Open or update a PR as usual.
+- Read the Check and the comment.
+- Define requirements and required criteria in ACI; repository configuration files are not yet supported.
 
-A Jira ticket says:
-
-> Add password reset functionality.
-
-Acceptance criteria:
-
-* User can request a password reset.
-* User receives a reset email.
-* Reset links expire.
-* User can set a new password.
-* The flow is covered by automated tests.
-
-A developer creates:
-
-```text
-PR #42
-Add password reset functionality
-```
-
-ACI discovers the linked Jira requirement and analyzes the PR.
-
-It may produce:
-
-```text
-DELIVERY STATUS: PARTIAL
-
-3 / 5 requirements verified
-
-✓ Password reset request implemented
-✓ User can set a new password
-✓ Automated tests detected
-
-⚠ Reset email delivery
-   Evidence found: email service implementation
-   Verification: Partial
-
-✗ Reset link expiration
-   No sufficient implementation evidence found
-```
-
-Instead of saying:
-
-> "The PR looks good."
-
-ACI says:
-
-> **"The PR does not yet provide sufficient evidence that the entire requirement has been delivered."**
+They do **not** need to visit a separate web app for normal review or merge decisions. A lightweight web interface exists only for audit history, bulk reports, or advanced configuration.
 
 ---
 
-# The ACI Verification Model
+## Example Output
 
-ACI separates several concepts that are normally mixed together.
+**PR comment / Check summary:**
+ACI Delivery Verification — PARTIAL
 
-## 1. Requirement
+3 / 5 criteria verified
 
-The original piece of work.
+✓ User can request password reset Evidence: handler in auth/reset.py (commit a1b2c3d)
 
-Requirements can originate from:
+✓ User can set a new password Evidence: endpoint + test coverage
 
-* Jira
-* Linear
-* GitHub
-* Manual entry
+✓ Automated tests cover the flow Evidence: CI check “unit-tests” green on head SHA
 
-A requirement contains information such as:
+⚠ Reset email is sent Partial evidence found (email service called) Confidence: medium
 
-* external ID
-* title
-* description
-* source
-* status
-* URL
+✗ Reset links must expire No sufficient implementation evidence found
+
+Delivery Decision: UNVERIFIED (required criteria incomplete)
+
+
+The Check can block merge until the missing criteria are addressed or explicitly waived.
 
 ---
 
-## 2. Criterion
+## Core Principles
 
-A requirement can be broken into explicit, independently verifiable pieces.
-
-For example:
-
-```text
-Requirement:
-Password Reset
-
-Criteria:
-
-1. User can request password reset.
-2. Reset email is sent.
-3. Reset token expires.
-4. User can choose a new password.
-5. Automated tests cover the flow.
-```
-
-Each criterion can be independently evaluated.
-
-This is important because:
-
-> A requirement should not be considered complete merely because most of it was implemented.
+- **No evidence, no verification.** Prefer “insufficient evidence” over a confident guess.
+- **Deterministic delivery decision.** The LLM may evaluate evidence; the final status follows clear rules (required criteria met, partials, missing).
+- **Workflow-native.** Primary interface is the PR and the Check. The dashboard is optional.
+- **Auditable chain.** Every conclusion points back to the requirement, criterion, commit, file, or CI result that supported it.
+- **AI is constrained.** The model receives only the structured evidence pack and must reference it. Output is validated before acceptance.
 
 ---
 
-## 3. Pull Request
+## Verification Model (Short)
 
-ACI connects requirements to GitHub Pull Requests.
+| Concept              | Role                                      |
+|----------------------|-------------------------------------------|
+| Requirement          | Source ticket / issue                     |
+| Criterion            | Independently verifiable acceptance piece |
+| Evidence             | Code diff, test result, CI status, etc.   |
+| Verification         | Grounded conclusion per criterion         |
+| Delivery Decision    | Deterministic overall status              |
 
-A PR contains:
-
-* repository
-* title
-* author
-* source branch
-* target branch
-* base SHA
-* head SHA
-* state
-* merge state
-
-The PR becomes the delivery unit that ACI evaluates.
+Possible criterion states: `satisfied`, `partial`, `missing`, `not_applicable`.
+Possible delivery decisions: `verified`, `partial`, `unverified`, `failed`, `stale`.
 
 ---
 
-## 4. Commits
-
-ACI records commits associated with the repository and PR.
-
-Commits provide a more precise view of what was delivered.
-
-They allow ACI to connect:
+## Architecture (Current Focus)
 
 ```text
-Requirement
-    ↓
-PR
-    ↓
-Commit
-    ↓
-Changed File
+GitHub App webhook
+  -> validate webhook signature and persist installation / PR / commit data
+  -> queue evidence collection and criterion verification
+  -> assemble a structured evidence report
+  -> validate evaluator output and calculate a deterministic delivery decision
+  -> publish/update one Check Run and one tracked PR comment
 ```
+
+The GitHub App is the repository integration and owns the PR-facing workflow. Its installation token is minted for the installation that delivered the webhook; a personal access token is retained only for local-development read access. Check Runs and PR comments are written only with a GitHub App installation token. The web console's optional user login and GitHub-account link control console visibility only; repository authorization is granted to the App installation.
+
+GitHub webhooks are signature-checked and saved to a durable database inbox, then acknowledged immediately. Run the separate persistent worker with `python ACI_backend/manage.py run_aci_worker` from the repository root (or configure that command as a continuously running worker service sharing the backend database and environment). It processes webhook events and verification runs independently of HTTP requests; failed webhook jobs are retried and visible in Django Admin. Check/status webhooks are ingested as evidence, while ACI's own Check Run is excluded to avoid feedback loops. The delivery decision is rule-based and conservative; an LLM can evaluate only the supplied evidence and cannot choose the final decision.
+
+The public web landing page points repositories to GitHub App installation and explains that review happens on the PR. Login and registration are only for the optional console, whose small navigation surface is for pull requests, requirements, and audit history. Analytics and detailed evidence views remain secondary/legacy routes rather than the merge-decision interface.
+
+### GitHub App configuration
+
+Configure `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET` in the backend environment. Configure `VITE_GITHUB_APP_SLUG` in the frontend to show the repository-install link. The app needs repository permissions for **Checks (read/write)**, **Contents (read)**, **Pull requests (read)**, and **Issues (read/write)**, and must subscribe to `pull_request`, `check_run`, and `status` events. Installation creation and permission-accepted events synchronize the repositories granted to the App. Installations should grant access only to repositories intended for verification.
+
+The backend accepts PostgreSQL settings either as `DATABASE_URL` or as `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_HOST`, and `DATABASE_PORT`. For local commands against Render data, use the database's external connection URL from Render and keep it in the ignored `ACI_backend/.env`; do not commit or share it.
 
 ---
 
-## 5. Changed Files
+## Current Status
 
-ACI records files modified by commits.
-
-For each changed file, ACI can retain:
-
-* filename
-* status
-* additions
-* deletions
-* total changes
-* patch
-
-This gives the verification system concrete implementation evidence.
+Early-stage implementation. The backend has GitHub App installation-token support, a durable webhook inbox, a persistent worker command for automatic processing, evidence-backed deterministic decisions, and GitHub Check/comment publishing. Hosting still requires a separate always-on worker process running `python ACI_backend/manage.py run_aci_worker`; webhook requests only enqueue work. PRs can link same-repository GitHub Issues via `#number`, or existing manual requirements via external ID or title. Jira linking is optional; repository config files, Linear, bulk reporting, and managed queue infrastructure are not included yet.
 
 ---
 
-# Evidence
+## Getting Started (Design Partners)
 
-Evidence is one of the most important parts of ACI.
+1. Configure the GitHub App credentials and webhook secret in the backend, then set the frontend app slug.
+2. Install the ACI GitHub App on a repository with the permissions listed above.
+3. Ensure the PR references a GitHub Issue (`#123`), a Jira key, or the external ID/title of a manual requirement in ACI.
+4. Open or update the PR; the webhook queues the event and the persistent worker collects evidence and evaluates criteria.
+5. Review the in-progress Check, then the completed decision and single updated comment.
 
-ACI does not want an AI model simply saying:
-
-> "I think this requirement is implemented."
-
-Instead, the system records **why** the conclusion was reached.
-
-Evidence can currently represent:
-
-* `code`
-* `test`
-* `ci`
-* `runtime`
-
-Each evidence item can have:
-
-* status
-* description
-* metadata
-* associated requirement
-* associated PR
-* associated commit
-* associated changed file
-
-This creates an auditable evidence chain.
+For configuration, audit history, or pilot discussion: [link to contact / docs].
 
 ---
 
-# Verification
-
-A verification represents ACI's conclusion about a requirement.
-
-Possible verification states include:
-
-```text
-pending
-verified
-partial
-unverified
-stale
-failed
-```
-
-A verification can contain:
-
-* summary
-* confidence
-* verification timestamp
-* invalidation timestamp
-* supporting evidence
-
-The important principle is:
-
-> **Verification conclusions must be grounded in supplied evidence.**
-
-The AI evaluator is therefore not treated as an unquestionable authority.
-
----
-
-# AI Evaluation
-
-ACI includes an LLM evaluation layer, but the architecture deliberately keeps the AI behind a provider-neutral interface.
-
-The evaluator receives structured information such as:
-
-```text
-Requirement
-    +
-Evidence
-```
-
-and is expected to return structured JSON containing:
-
-```text
-status
-summary
-confidence
-evidence_ids
-```
-
-The evaluator is explicitly instructed to:
-
-* evaluate only supplied evidence,
-* avoid inventing evidence,
-* reference only supplied evidence,
-* conform to the expected response structure.
-
-ACI then validates the evaluator's conclusion before accepting it.
-
-This creates an important architectural boundary:
-
-```text
-Evidence
-   ↓
-LLM
-   ↓
-Structured conclusion
-   ↓
-Contract validation
-   ↓
-Verification
-```
-
-The AI can reason.
-
-The system still controls what is accepted.
-
----
-
-# Criterion Verification
-
-Requirements can be evaluated at criterion level.
-
-Each criterion evaluation can produce states such as:
-
-```text
-pending
-satisfied
-partial
-missing
-not_applicable
-failed
-```
-
-This allows ACI to distinguish between:
-
-```text
-Requirement = partially implemented
-```
-
-and:
-
-```text
-Criterion #3 = missing
-```
-
-That distinction is critical for developers.
-
-Instead of receiving a vague:
-
-> "Something might be missing."
-
-they can receive:
-
-> **Criterion #3 — Reset links must expire**
->
-> Status: Missing
->
-> No sufficient implementation evidence was found.
-
----
-
-# Delivery Decision
-
-ACI separates **verification** from the final delivery decision.
-
-The delivery decision is deterministic.
-
-It considers:
-
-* verification status,
-* required criteria,
-* criterion results,
-* missing criteria,
-* partial criteria,
-* verification evidence.
-
-Possible decisions include:
-
-```text
-verified
-partial
-unverified
-failed
-stale
-```
-
-For example:
-
-```text
-Verification:
-PARTIAL
-
-Required criteria:
-5
-
-Satisfied:
-3
-
-Partial:
-1
-
-Missing:
-1
-
-Delivery Decision:
-UNVERIFIED
-```
-
-This prevents an AI evaluator from simply overriding the actual requirement state.
-
----
-
-# Evidence-First Architecture
-
-One of ACI's central design principles is:
-
-> **No evidence, no verification.**
-
-The system should prefer:
-
-```text
-Unknown
-```
-
-over:
-
-```text
-Probably implemented
-```
-
-when evidence is insufficient.
-
-This is particularly important when AI is involved.
-
-ACI is therefore designed around **evidence-backed conclusions rather than AI-generated confidence alone**.
-
----
-
-# Auditability
-
-ACI retains relationships between:
-
-```text
-Requirement
-    ↓
-Criterion
-    ↓
-Verification
-    ↓
-Evidence
-    ↓
-Commit
-    ↓
-Changed File
-```
-
-This makes it possible to answer questions such as:
-
-* Which requirement was being verified?
-* Which criterion failed?
-* Which PR delivered the work?
-* Which commit contained the implementation?
-* Which files provided evidence?
-* What evidence supported the conclusion?
-* When was the verification performed?
-* Has that evidence become stale?
-* Why did ACI mark the delivery as partial?
-
-This is intended to make ACI useful not only for automation but also for engineering accountability.
-
----
-
-# Current Architecture
-
-ACI is currently built around Django and a service-oriented integration layer.
-
-Conceptually:
-
-```text
-                    ┌───────────────┐
-                    │     Jira      │
-                    └───────┬───────┘
-                            │
-                            ▼
-                    ┌───────────────┐
-                    │  Requirements │
-                    └───────┬───────┘
-                            │
-                            ▼
-┌──────────────┐     ┌───────────────┐
-│    GitHub    │────▶│      ACI      │
-│   Webhooks   │     │               │
-└──────────────┘     │ Verification  │
-                     │ Engine        │
-                     └───────┬───────┘
-                             │
-              ┌──────────────┼──────────────┐
-              ▼              ▼              ▼
-           Commits      Changed Files     Evidence
-              │              │              │
-              └──────────────┼──────────────┘
-                             ▼
-                       ┌───────────┐
-                       │    LLM    │
-                       │ Evaluator │
-                       └─────┬─────┘
-                             ▼
-                       ┌───────────┐
-                       │Verification│
-                       └─────┬─────┘
-                             ▼
-                       ┌───────────┐
-                       │ Delivery  │
-                       │ Decision  │
-                       └───────────┘
-```
-
----
-
-# Current Integrations
-
-### GitHub
-
-ACI currently works with GitHub webhook events and GitHub repository data.
-
-The GitHub integration is responsible for obtaining information such as:
-
-* repositories
-* pull requests
-* commits
-* changed files
-
-Users can sign in with GitHub from the ACI login page or connect GitHub from
-the ACI navigation. ACI verifies the identity through GitHub OAuth using the
-`read:user` scope; it does not store the OAuth access token or match accounts
-by email. GitHub sign-in creates/reuses an ACI account based on GitHub's stable
-user ID. A verified account can see a repository when its GitHub login owns
-that repository or authored a pull request in it.
-
-Create a GitHub OAuth App with the ACI frontend as its homepage and this
-authorization callback URL:
-
-```text
-https://on-spec.vercel.app/api/auth/github/callback/
-```
-
-Configure these variables on the backend deployment. Without the OAuth client
-ID and secret, the connect/login endpoint returns 503:
-
-* `GITHUB_OAUTH_CLIENT_ID`
-* `GITHUB_OAUTH_CLIENT_SECRET`
-* `GITHUB_OAUTH_REDIRECT_URI` (the callback URL above)
-* `FRONTEND_URL` (for example, `https://on-spec.vercel.app`)
-
-### Running a verification
-
-Configure the GitHub webhook in each repository that ACI should monitor. Use
-the ACI endpoint `/api/webhooks/github/` and subscribe to pull request, check
-run, and commit status events.
-
-When a pull request contains a Jira key in its title or description, such as
-`PROJ-123`, ACI imports the Jira requirement and links it to the pull request.
-The webhook then queues the initial verification automatically when changed
-files are available.
-
-Existing imported data can be started through the authenticated API:
-
-```text
-GET  /api/repositories/{repository_id}/pull-requests/
-GET  /api/repositories/{repository_id}/requirements/
-POST /api/repositories/{repository_id}/start-verification/
-```
-
-The start request accepts `pull_request_id` or `pull_request_number`, plus
-`requirement_id` or `jira_key`. For example:
-
-```json
-{
-    "pull_request_number": 12,
-    "jira_key": "PROJ-123"
-}
-```
-
-Run the worker after a verification is queued:
-
-```bash
-python ACI_backend/manage.py process_reverification_runs
-```
-
-Results are available from `/api/verifications/`,
-`/api/verification-runs/`, and `/api/delivery-decisions/`.
-
-### Jira
-
-ACI currently supports Jira requirement ingestion.
-
-Jira issue keys can be detected from text such as:
-
-```text
-Implements PROJ-123
-Fixes PROJ-456
-```
-
-ACI can then retrieve the corresponding issue and associate it with the Pull Request.
-
----
-
-# Design Principles
-
-## 1. Evidence Before Conclusions
-
-ACI should never claim something is delivered without supporting evidence.
-
-## 2. Requirements Are First-Class Objects
-
-The requirement is not merely metadata attached to a PR.
-
-It is the thing being verified.
-
-## 3. Criteria Must Be Independently Verifiable
-
-Large requirements should be decomposed into smaller acceptance criteria.
-
-## 4. AI Assists; The System Decides
-
-LLMs provide semantic reasoning.
-
-Deterministic services enforce system rules and consistency.
-
-## 5. Preserve History
-
-Verification results and delivery decisions should remain auditable rather than simply being overwritten.
-
-## 6. Prefer Conservative Conclusions
-
-If evidence is insufficient:
-
-```text
-unverified
-```
-
-is preferable to a false:
-
-```text
-verified
-```
-
-## 7. Evidence Can Become Stale
-
-A verification should not remain permanently trustworthy if the underlying implementation changes.
-
----
-
-# What Makes ACI Different
-
-ACI is not intended to be another generic AI code reviewer.
-
-The core distinction is the **delivery verification layer**.
-
-Traditional code review asks:
-
-```text
-Is this code good?
-```
-
-ACI asks:
-
-```text
-Did we deliver what was requested?
-```
-
-And more importantly:
-
-```text
-What evidence proves it?
-```
-
-This creates a different relationship between:
-
-```text
-Product requirement
-        ↓
-Engineering implementation
-        ↓
-Verification
-        ↓
-Delivery confidence
-```
-
----
-
-# The Long-Term Vision
-
-The long-term goal is for ACI to become a **delivery verification layer for software teams**.
-
-A future ACI workflow could look like:
-
-```text
-Jira / Linear
-      │
-      │ Requirements
-      ▼
-     ACI
-      │
-      │ PR opened
-      ▼
-   GitHub
-      │
-      │ Code / commits / tests
-      ▼
-     ACI
-      │
-      ├── Requirement analysis
-      ├── Criterion verification
-      ├── Evidence collection
-      ├── AI reasoning
-      └── Deterministic validation
-      │
-      ▼
-Delivery Decision
-      │
-      ├── VERIFIED
-      ├── PARTIAL
-      ├── UNVERIFIED
-      └── FAILED
-```
-
-The ultimate objective is simple:
-
-> **Give engineering teams confidence that completed work actually satisfies the work that was requested.**
-
----
-
-# Development Status
-
-ACI is currently in active development.
-
-The foundational system already includes:
-
-* GitHub repository ingestion
-* Pull Request ingestion
-* Commit ingestion
-* Changed-file ingestion
-* Jira requirement ingestion
-* Requirement ↔ Pull Request relationships
-* Requirement criteria
-* Criterion verification
-* Evidence relationships
-* Verification services
-* LLM evaluator abstraction
-* OpenAI evaluator integration
-* Deterministic delivery decisions
-* Historical delivery decision snapshots
-* Evidence-backed verification validation
-* Automated test coverage for the core services
-
-The project is currently moving toward the next stage:
-
-**turning the verification model into a complete end-to-end delivery verification workflow.**
-
----
-
-# Testing
-
-Run the complete test suite with:
-
-```bash
-pytest ACI_backend
-```
-
-The project is designed so that external services such as GitHub, Jira, and LLM providers can be mocked during tests.
-
-This keeps the core verification logic deterministic and testable.
-
----
-
-# Project Philosophy
-
-ACI is built around one fundamental question:
-
-> **"Can we prove this requirement was delivered?"**
-
-Not:
-
-> "Did the PR look good?"
-
-Not:
-
-> "Did an AI reviewer approve the code?"
-
-Not:
-
-> "Did the developer say it was finished?"
-
-But:
-
-> **"What was requested, what was implemented, what evidence exists, and what can we confidently verify?"**
-
-That is the problem ACI exists to solve.
-
----
-
-## ACI
-
-**From code review to delivery verification.**
-
-**From assumptions to evidence.**
-
-**From "looks done" to "proven delivered."**
+**From assumed done to proven delivered.**
