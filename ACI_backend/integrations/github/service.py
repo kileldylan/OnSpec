@@ -401,9 +401,14 @@ def process_github_installation_event(event, payload):
         return []
 
     if event == "installation":
-        if action != "created":
+        if action == "new_permissions_accepted":
+            repositories = GitHubClient(
+                installation_id=installation_id,
+            ).list_installation_repositories()
+        elif action == "created":
+            repositories = payload.get("repositories", [])
+        else:
             return []
-        repositories = payload.get("repositories", [])
     elif event == "installation_repositories" and action == "added":
         repositories = payload.get("repositories_added", [])
     else:

@@ -13,7 +13,7 @@ from ACI_backend.integrations.github.worker import enqueue_github_webhook
 logger = logging.getLogger(__name__)
 
 PULL_REQUEST_ACTIONS = {"opened", "reopened", "synchronize", "closed"}
-INSTALLATION_ACTIONS = {"created", "deleted"}
+INSTALLATION_ACTIONS = {"created", "deleted", "new_permissions_accepted"}
 INSTALLATION_REPOSITORIES_ACTIONS = {"added", "removed"}
 CHECK_RUN_ACTIONS = {"created", "rerequested", "completed"}
 

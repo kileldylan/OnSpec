@@ -143,7 +143,7 @@ The public web landing page points repositories to GitHub App installation and e
 
 ### GitHub App configuration
 
-Configure `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET` in the backend environment. Configure `VITE_GITHUB_APP_SLUG` in the frontend to show the repository-install link. The app needs repository permissions for **Checks (read/write)**, **Contents (read)**, **Pull requests (read)**, and **Issues (read/write)**, and must subscribe to `installation`, `installation_repositories`, `pull_request`, `check_run`, and `status` events. Installations should grant access only to repositories intended for verification.
+Configure `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET` in the backend environment. Configure `VITE_GITHUB_APP_SLUG` in the frontend to show the repository-install link. The app needs repository permissions for **Checks (read/write)**, **Contents (read)**, **Pull requests (read)**, and **Issues (read/write)**, and must subscribe to `pull_request`, `check_run`, and `status` events. Installation creation and permission-accepted events synchronize the repositories granted to the App. Installations should grant access only to repositories intended for verification.
 
 ---
 

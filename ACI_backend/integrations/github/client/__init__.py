@@ -109,6 +109,23 @@ class GitHubClient:
             f"/repos/{owner}/{repository}/issues/{issue_number}"
         )
 
+    def list_installation_repositories(self):
+        repositories = []
+        page = 1
+        while True:
+            result = self._request(
+                f"/installation/repositories?per_page=100&page={page}"
+            )
+            batch = result.get("repositories") if isinstance(result, dict) else None
+            if not isinstance(batch, list):
+                raise GitHubAPIError(
+                    "GitHub returned an invalid installation repository list."
+                )
+            repositories.extend(batch)
+            if len(batch) < 100:
+                return repositories
+            page += 1
+
     def get_pull_request_commits(self, owner, repository, pull_request_number):
         endpoint = f"/repos/{owner}/{repository}/pulls/{pull_request_number}/commits"
         return self._request(endpoint)

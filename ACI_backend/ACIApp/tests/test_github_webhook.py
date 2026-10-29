@@ -231,6 +231,49 @@ def test_github_installation_events_track_repository_access(api_client):
 
 @pytest.mark.django_db
 @patch("ACI_backend.integrations.github.service.GitHubClient")
+def test_permissions_accepted_event_syncs_installed_repositories(
+    mock_github_client,
+    api_client,
+):
+    installation_id = 456791
+    mock_github_client.return_value.list_installation_repositories.return_value = [
+        {
+            "id": 456792,
+            "name": "aci-test",
+            "full_name": "kileldylan/aci_test",
+            "default_branch": "main",
+            "owner": {"login": "kileldylan"},
+        },
+    ]
+    payload = {
+        "action": "new_permissions_accepted",
+        "installation": {"id": installation_id},
+        "sender": {"login": "kileldylan"},
+    }
+    signature, body = create_github_signature(payload)
+
+    response = api_client.post(
+        reverse("github-webhook"),
+        data=body,
+        content_type="application/json",
+        HTTP_X_GITHUB_EVENT="installation",
+        HTTP_X_HUB_SIGNATURE_256=signature,
+        HTTP_X_GITHUB_DELIVERY="permissions-accepted-delivery",
+    )
+
+    assert response.status_code == 202
+    job = process_next_github_webhook()
+    assert job.status == "completed"
+    repository = Repository.objects.get(github_id=456792)
+    assert repository.github_installation_id == installation_id
+    mock_github_client.assert_called_once_with(
+        installation_id=installation_id,
+    )
+    mock_github_client.return_value.list_installation_repositories.assert_called_once()
+
+
+@pytest.mark.django_db
+@patch("ACI_backend.integrations.github.service.GitHubClient")
 @patch("ACI_backend.integrations.github.service.start_initial_verification")
 @patch("ACI_backend.integrations.github.outputs.publish_delivery_result")
 def test_linked_app_pull_request_publishes_initial_pending_result(
