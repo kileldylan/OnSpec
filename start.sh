@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+cd "$(dirname "${BASH_SOURCE[0]}")"
+
 python ACI_backend/manage.py migrate --noinput
 
 python ACI_backend/manage.py run_aci_worker &
