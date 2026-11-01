@@ -89,6 +89,33 @@ def test_github_webhook_deduplicates_delivery_id(api_client):
 
 
 @pytest.mark.django_db
+def test_github_webhook_queues_edited_pull_request(api_client):
+    payload = {
+        "action": "edited",
+        "repository": {"id": 123},
+        "pull_request": {"number": 1},
+    }
+    signature, body = create_github_signature(payload)
+
+    response = api_client.post(
+        reverse("github-webhook"),
+        data=body,
+        content_type="application/json",
+        HTTP_X_GITHUB_EVENT="pull_request",
+        HTTP_X_HUB_SIGNATURE_256=signature,
+        HTTP_X_GITHUB_DELIVERY="edited-pull-request-delivery",
+    )
+
+    assert response.status_code == 202
+    assert response.json()["message"] == (
+        "Webhook queued for background processing."
+    )
+    job = GitHubWebhookJob.objects.get()
+    assert job.event == "pull_request"
+    assert job.payload["action"] == "edited"
+
+
+@pytest.mark.django_db
 @patch("ACI_backend.integrations.github.service.GitHubClient")
 def test_pull_request_links_github_issues_and_manual_requirements(
     mock_github_client,
