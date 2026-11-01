@@ -57,12 +57,23 @@ def test_github_api_request_errors_are_wrapped():
         "ACI_backend.integrations.github.client.requests.Session.get"
     ) as mock_get:
         mock_response = Mock()
+        mock_response.status_code = 403
+        mock_response.json.return_value = {
+            "message": "Resource not accessible by integration"
+        }
         mock_response.raise_for_status.side_effect = requests.HTTPError(
-            "Unauthorized"
+            "Forbidden",
+            response=mock_response,
         )
         mock_get.return_value = mock_response
 
-        with pytest.raises(GitHubAPIError):
+        with pytest.raises(
+            GitHubAPIError,
+            match=(
+                r"GitHub API request failed \(403\).*"
+                r"Resource not accessible by integration"
+            ),
+        ):
             GitHubClient(token="test-token").get_pull_request_commits(
                 owner="kilel",
                 repository="aci-demo",

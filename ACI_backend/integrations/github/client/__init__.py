@@ -98,8 +98,28 @@ class GitHubClient:
             if response.status_code == 204:
                 return {}
             return response.json()
-        except (RequestException, ValueError) as exc:
-            raise GitHubAPIError("GitHub API request failed.") from exc
+        except RequestException as exc:
+            response = exc.response
+            status_code = response.status_code if response is not None else None
+            try:
+                error_payload = response.json() if response is not None else None
+            except ValueError:
+                error_payload = None
+            message = (
+                error_payload.get("message")
+                if isinstance(error_payload, dict)
+                else None
+            )
+            if isinstance(message, str):
+                message = message[:500]
+            details = f" ({status_code})" if status_code is not None else ""
+            if message:
+                details += f": {message}"
+            raise GitHubAPIError(
+                f"GitHub API request failed{details} for {method} {endpoint}."
+            ) from exc
+        except ValueError as exc:
+            raise GitHubAPIError("GitHub API returned invalid JSON.") from exc
 
     def get_commit(self, owner, repository, sha):
         return self._request(f"/repos/{owner}/{repository}/commits/{sha}")
