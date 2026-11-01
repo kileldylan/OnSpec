@@ -1,4 +1,5 @@
 import hashlib
+import logging
 import re
 from urllib.parse import urlparse
 
@@ -17,6 +18,7 @@ from ACI_backend.integrations.github.client import (
 
 CHECK_NAME = "ACI / Delivery Verification"
 COMMENT_MARKER = "<!-- aci-delivery-verification -->"
+logger = logging.getLogger(__name__)
 
 
 def _latest_criterion_results(verification):
@@ -272,4 +274,12 @@ def publish_delivery_result(pull_request, *, github_client=None):
     )
     status, summary = build_delivery_report(pull_request)
     _upsert_check(github_client, pull_request, status, summary)
-    _upsert_comment(github_client, pull_request, summary)
+    try:
+        _upsert_comment(github_client, pull_request, summary)
+    except GitHubAPIError as error:
+        logger.warning(
+            "GitHub Check Run was published for %s, but its PR comment "
+            "could not be published: %s",
+            pull_request,
+            error,
+        )

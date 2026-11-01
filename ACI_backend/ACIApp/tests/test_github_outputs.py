@@ -14,6 +14,7 @@ from ACI_backend.ACIApp.models import (
     RequirementPullRequest,
     Verification,
 )
+from ACI_backend.integrations.github.client import GitHubAPIError
 from ACI_backend.integrations.github.outputs import (
     CHECK_NAME,
     COMMENT_MARKER,
@@ -214,3 +215,20 @@ def test_pending_delivery_keeps_check_run_in_progress(pull_request):
     assert check_payload["status"] == "in_progress"
     assert "conclusion" not in check_payload
     assert "| pending |" in check_payload["output"]["summary"]
+
+
+@pytest.mark.django_db
+def test_comment_permission_failure_does_not_block_check_publication(
+    pull_request,
+):
+    github_client = Mock()
+    github_client.list_check_runs.return_value = {"check_runs": []}
+    github_client.list_pull_request_comments.return_value = []
+    github_client.create_pull_request_comment.side_effect = GitHubAPIError(
+        "GitHub API request failed (403): Resource not accessible by integration"
+    )
+
+    publish_delivery_result(pull_request, github_client=github_client)
+
+    github_client.create_check_run.assert_called_once()
+    github_client.create_pull_request_comment.assert_called_once()
