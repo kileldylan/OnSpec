@@ -81,6 +81,10 @@ REQUIRED_HOSTS = [
     "onspec.onrender.com",
     ".onrender.com",      # Good for Render health checks
     ".vercel.app",
+    "deelan.co.ke",
+    "www.deelan.co.ke",
+    "api.deelan.co.ke",
+    "app.deelan.co.ke",
 ]
 
 for host in REQUIRED_HOSTS:
@@ -245,6 +249,9 @@ CORS_ALLOWED_ORIGINS = [
     "http://localhost:5173",
     "http://127.0.0.1:5173",
     "https://on-spec.vercel.app",
+    "https://deelan.co.ke",
+    "https://www.deelan.co.ke",
+    "https://app.deelan.co.ke",
 ]
 
 # Allow cookies/sessions/CSRF tokens to be passed
@@ -254,6 +261,10 @@ CSRF_TRUSTED_ORIGINS = [
     "https://on-spec.vercel.app",
     "https://onspec.onrender.com",
     "http://localhost:5173",
+    "https://deelan.co.ke",
+    "https://www.deelan.co.ke",
+    "https://api.deelan.co.ke",
+    "https://app.deelan.co.ke",
 ]
 
 # Trust Render's proxy to tell Django the request is HTTPS
