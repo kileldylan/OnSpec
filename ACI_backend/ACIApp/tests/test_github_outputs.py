@@ -218,6 +218,41 @@ def test_pending_delivery_keeps_check_run_in_progress(pull_request):
 
 
 @pytest.mark.django_db
+def test_reopening_completed_check_omits_null_completion_fields(pull_request):
+    verification = Verification.objects.get(pull_request=pull_request)
+    verification.status = "pending"
+    verification.save(update_fields=["status"])
+    DeliveryDecision.objects.filter(verification=verification).delete()
+
+    github_client = Mock()
+    github_client.list_check_runs.return_value = {
+        "check_runs": [
+            {
+                "id": 98106,
+                "name": CHECK_NAME,
+                "status": "completed",
+                "head_sha": pull_request.head_sha,
+                "conclusion": "success",
+                "output": {
+                    "title": "Delivery verification: verified",
+                    "summary": "Previous result",
+                },
+            },
+        ],
+    }
+    github_client.list_pull_request_comments.return_value = [
+        {"id": 98107, "body": COMMENT_MARKER},
+    ]
+
+    publish_delivery_result(pull_request, github_client=github_client)
+
+    update_payload = github_client.update_check_run.call_args.args[3]
+    assert update_payload["status"] == "in_progress"
+    assert "conclusion" not in update_payload
+    assert "completed_at" not in update_payload
+
+
+@pytest.mark.django_db
 def test_comment_permission_failure_does_not_block_check_publication(
     pull_request,
 ):

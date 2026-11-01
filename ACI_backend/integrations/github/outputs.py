@@ -191,9 +191,6 @@ def _upsert_check(client, pull_request, status, summary):
             for key, value in payload.items()
             if key not in {"name", "head_sha"}
         }
-        if status == "pending":
-            update_payload["conclusion"] = None
-            update_payload["completed_at"] = None
         client.update_check_run(
             repository.owner,
             repository.name,
