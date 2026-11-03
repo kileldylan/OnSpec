@@ -1,10 +1,12 @@
 import hashlib
 import hmac
 import json
+import uuid
 from unittest.mock import patch
 
 import pytest
 from django.conf import settings
+from django.test import override_settings
 from django.urls import reverse
 from rest_framework.test import APIClient
 
@@ -26,7 +28,15 @@ from ACI_backend.integrations.github.worker import process_next_github_webhook
 
 @pytest.fixture
 def api_client():
-    return APIClient()
+    class GitHubDeliveryClient(APIClient):
+        def post(self, path, *args, **kwargs):
+            kwargs.setdefault(
+                "HTTP_X_GITHUB_DELIVERY",
+                str(uuid.uuid4()),
+            )
+            return super().post(path, *args, **kwargs)
+
+    return GitHubDeliveryClient()
 
 
 def create_github_signature(payload):
@@ -55,6 +65,7 @@ def test_github_webhook_accepts_valid_signature(api_client):
         content_type="application/json",
         HTTP_X_GITHUB_EVENT="ping",
         HTTP_X_HUB_SIGNATURE_256=signature,
+        HTTP_X_GITHUB_DELIVERY="ping-delivery",
     )
 
     assert response.status_code == 202
@@ -86,6 +97,39 @@ def test_github_webhook_deduplicates_delivery_id(api_client):
         assert response.status_code == 202
 
     assert GitHubWebhookJob.objects.count() == 1
+
+
+@pytest.mark.django_db
+def test_github_webhook_requires_delivery_id(api_client):
+    signature, body = create_github_signature({"zen": "test"})
+
+    response = api_client.post(
+        reverse("github-webhook"),
+        data=body,
+        content_type="application/json",
+        HTTP_X_GITHUB_EVENT="ping",
+        HTTP_X_GITHUB_DELIVERY="",
+        HTTP_X_HUB_SIGNATURE_256=signature,
+    )
+
+    assert response.status_code == 400
+
+
+@pytest.mark.django_db
+@override_settings(GITHUB_WEBHOOK_MAX_BYTES=1)
+def test_github_webhook_rejects_oversized_payload(api_client):
+    signature, body = create_github_signature({"zen": "test"})
+
+    response = api_client.post(
+        reverse("github-webhook"),
+        data=body,
+        content_type="application/json",
+        HTTP_X_GITHUB_EVENT="ping",
+        HTTP_X_GITHUB_DELIVERY="oversized-delivery",
+        HTTP_X_HUB_SIGNATURE_256=signature,
+    )
+
+    assert response.status_code == 413
 
 
 @pytest.mark.django_db

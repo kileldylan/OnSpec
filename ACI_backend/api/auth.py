@@ -11,11 +11,17 @@ from django.conf import settings
 from django.views.decorators.csrf import csrf_protect
 from django.views.decorators.csrf import ensure_csrf_cookie
 from rest_framework import serializers, status
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 
 from ACI_backend.ACIApp.models import GitHubAccount
+from ACI_backend.api.throttling import (
+    LoginAccountRateThrottle,
+    LoginIPRateThrottle,
+    RegistrationRateThrottle,
+)
 from ACI_backend.integrations.github.accounts import (
     link_github_account_repositories,
 )
@@ -24,6 +30,14 @@ from ACI_backend.integrations.github.oauth import GitHubOAuthError, exchange_cod
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+
+
+class GitHubOAuthAnonymousRateThrottle(AnonRateThrottle):
+    scope = "github_oauth"
+
+
+class GitHubOAuthUserRateThrottle(UserRateThrottle):
+    scope = "github_oauth"
 
 
 class RegistrationSerializer(serializers.Serializer):
@@ -81,6 +95,7 @@ def csrf_token(request):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([RegistrationRateThrottle])
 @csrf_protect
 def register(request):
     serializer = RegistrationSerializer(data=request.data)
@@ -92,6 +107,7 @@ def register(request):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@throttle_classes([LoginIPRateThrottle, LoginAccountRateThrottle])
 @csrf_protect
 def login_view(request):
     serializer = LoginSerializer(data=request.data)
@@ -130,12 +146,18 @@ def current_user(request):
 
 @api_view(["GET"])
 @permission_classes([IsAuthenticated])
+@throttle_classes(
+    [GitHubOAuthAnonymousRateThrottle, GitHubOAuthUserRateThrottle]
+)
 def github_oauth_connect(request):
     return _github_oauth_authorization_response(request, mode="link")
 
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
+@throttle_classes(
+    [GitHubOAuthAnonymousRateThrottle, GitHubOAuthUserRateThrottle]
+)
 def github_oauth_login(request):
     return _github_oauth_authorization_response(request, mode="login")
 
@@ -168,6 +190,9 @@ def _github_oauth_authorization_response(request, *, mode):
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
+@throttle_classes(
+    [GitHubOAuthAnonymousRateThrottle, GitHubOAuthUserRateThrottle]
+)
 def github_oauth_callback(request):
     state = request.query_params.get("state", "")
     expected_state = request.session.pop("github_oauth_state", "")

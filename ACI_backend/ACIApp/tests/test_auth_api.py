@@ -1,7 +1,12 @@
+from uuid import uuid4
+
 import pytest
 from django.contrib.auth import get_user_model
 from django.urls import reverse
-from rest_framework.test import APIClient
+from rest_framework.test import APIClient, APIRequestFactory
+from rest_framework.views import APIView
+
+from ACI_backend.api.throttling import LoginAccountRateThrottle
 
 
 @pytest.mark.django_db
@@ -123,3 +128,30 @@ def test_register_requires_csrf_token():
 
     assert response.status_code == 201
     assert response.json()["user"]["username"] == "csrf-user"
+
+
+def test_login_account_throttle_is_case_insensitive():
+    account = f"{uuid4().hex}@example.com"
+    factory = APIRequestFactory()
+    view = APIView()
+    throttle = LoginAccountRateThrottle()
+    throttle.rate = "1/minute"
+    throttle.num_requests = 1
+    throttle.duration = 60
+
+    first_request = view.initialize_request(
+        factory.post("/api/auth/login/", {"username": account}, format="json")
+    )
+    repeated_request = view.initialize_request(
+        factory.post(
+            "/api/auth/login/",
+            {"username": account.upper()},
+            format="json",
+        )
+    )
+
+    assert throttle.get_cache_key(first_request, view=None) == (
+        throttle.get_cache_key(repeated_request, view=None)
+    )
+    assert throttle.allow_request(first_request, view=None)
+    assert not throttle.allow_request(repeated_request, view=None)

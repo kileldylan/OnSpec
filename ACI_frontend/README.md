@@ -9,7 +9,7 @@ The public home page explains and links to the GitHub App. Developers install th
 ## Local development
 
 1. Install frontend dependencies with `npm install`.
-2. Set `VITE_GITHUB_APP_SLUG` to the GitHub App's URL slug to enable the repository installation link.
+2. The public page links to the existing `aci-delivery-verification` GitHub App by default. Set `VITE_GITHUB_APP_SLUG` only if you need to override that App slug for another deployment.
 3. Configure `VITE_API_URL` when the backend URL differs from the deployed default; local development uses the Vite proxy.
 4. Start the frontend with `npm run dev`.
 

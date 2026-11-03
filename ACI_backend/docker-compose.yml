@@ -8,6 +8,9 @@ services:
       - POSTGRES_USER=aci_user
       - POSTGRES_PASSWORD=aci_password
 
+  redis:
+    image: redis:7-alpine
+
   web:
     build:
       context: ..
@@ -24,8 +27,10 @@ services:
       - .env
     environment:
       - DATABASE_HOST=db
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       - db
+      - redis
 
   worker:
     build:
@@ -39,8 +44,10 @@ services:
       - .env
     environment:
       - DATABASE_HOST=db
+      - REDIS_URL=redis://redis:6379/0
     depends_on:
       - db
+      - redis
 
 volumes:
   postgres_data:

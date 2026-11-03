@@ -1,4 +1,7 @@
 import base64
+import hashlib
+import json
+import re
 import time
 from urllib.parse import quote
 
@@ -7,6 +10,9 @@ import requests
 from requests.exceptions import RequestException
 
 from django.conf import settings
+from django.core.cache import cache
+from django.utils import timezone
+from django.utils.dateparse import parse_datetime
 
 class GitHubAPIError(Exception):
     """Raised when a GitHub API request fails."""
@@ -41,6 +47,19 @@ class GitHubClient:
             return self._installation_token
         if not self.installation_id:
             raise GitHubAPIError("GitHub App installation is not configured.")
+        token_cache_key = (
+            f"aci:github:installation-token:{settings.GITHUB_APP_ID}:"
+            f"{self.installation_id}"
+        )
+        cached_token = cache.get(token_cache_key)
+        if (
+            isinstance(cached_token, dict)
+            and isinstance(cached_token.get("token"), str)
+            and cached_token.get("token")
+        ):
+            self._installation_token = cached_token["token"]
+            return self._installation_token
+
         url = (
             f"{self.BASE_URL}/app/installations/"
             f"{self.installation_id}/access_tokens"
@@ -67,7 +86,34 @@ class GitHubClient:
                 "GitHub did not return an installation access token."
             )
         self._installation_token = token
+        expires_at = payload.get("expires_at") if isinstance(payload, dict) else None
+        expires_at = parse_datetime(expires_at) if isinstance(expires_at, str) else None
+        if expires_at is not None and timezone.is_aware(expires_at):
+            timeout = int((expires_at - timezone.now()).total_seconds()) - 60
+            if timeout > 0:
+                cache.set(
+                    token_cache_key,
+                    {"token": token},
+                    timeout=timeout,
+                )
         return token
+
+    def _cached_get(self, endpoint, *, timeout=300):
+        auth_scope = (
+            f"installation:{self.installation_id}"
+            if self.installation_id
+            else hashlib.sha256((self.token or "").encode()).hexdigest()
+        )
+        digest = hashlib.sha256(endpoint.encode()).hexdigest()
+        key = f"aci:github:read:{auth_scope}:{digest}"
+        cached_result = cache.get(key)
+        if cached_result is not None:
+            return cached_result
+        result = self._request(endpoint)
+        serialized = json.dumps(result, separators=(",", ":"), ensure_ascii=False)
+        if len(serialized.encode("utf-8")) <= settings.GITHUB_CACHE_MAX_BYTES:
+            cache.set(key, result, timeout=timeout)
+        return result
 
     def _request(self, endpoint, *, method="GET", payload=None):
         url = f"{self.BASE_URL}{endpoint}"
@@ -122,7 +168,10 @@ class GitHubClient:
             raise GitHubAPIError("GitHub API returned invalid JSON.") from exc
 
     def get_commit(self, owner, repository, sha):
-        return self._request(f"/repos/{owner}/{repository}/commits/{sha}")
+        endpoint = f"/repos/{owner}/{repository}/commits/{sha}"
+        if re.fullmatch(r"[0-9a-fA-F]{40,64}", sha):
+            return self._cached_get(endpoint)
+        return self._request(endpoint)
 
     def get_issue(self, owner, repository, issue_number):
         return self._request(
@@ -155,6 +204,8 @@ class GitHubClient:
             f"/repos/{owner}/{repository}/git/trees/"
             f"{quote(ref, safe='')}?recursive=1"
         )
+        if re.fullmatch(r"[0-9a-fA-F]{40,64}", ref):
+            return self._cached_get(endpoint)
         return self._request(endpoint)
 
     def get_repository_file(self, owner, repository, path, ref):
@@ -162,7 +213,11 @@ class GitHubClient:
             f"/repos/{owner}/{repository}/contents/"
             f"{quote(path, safe='/')}?ref={quote(ref, safe='')}"
         )
-        result = self._request(endpoint)
+        result = (
+            self._cached_get(endpoint)
+            if re.fullmatch(r"[0-9a-fA-F]{40,64}", ref)
+            else self._request(endpoint)
+        )
         if result.get("encoding") != "base64" or not result.get("content"):
             return ""
         try:

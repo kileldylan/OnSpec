@@ -139,6 +139,10 @@ The public web landing page points repositories to GitHub App installation and e
 
 Configure `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET` in the backend environment. Configure `VITE_GITHUB_APP_SLUG` in the frontend to show the repository-install link. The app needs repository permissions for **Checks (read/write)**, **Contents (read)**, **Pull requests (read)**, and **Issues (read/write)**, and must subscribe to `pull_request`, `check_run`, and `status` events. Installation creation and permission-accepted events synchronize the repositories granted to the App. Installations should grant access only to repositories intended for verification.
 
+Configure a private Redis service and set `REDIS_URL` on both the Render web service and worker. Redis provides shared API rate-limit state, GitHub App installation-token caching, and short-lived caching of immutable commit-SHA reads. Without it, local development uses process-local memory, which is not suitable for coordinating production service instances. Auth endpoints have tighter limits; API limits are global, and GitHub webhooks instead rely on HMAC signature validation, delivery-ID deduplication, and a payload size cap to tolerate GitHub event bursts.
+
+Set `DEBUG=False` and keep `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, and `CSRF_TRUSTED_ORIGINS` restricted to the deployed domains. Production enables HTTPS redirects and HSTS by default; `SECURE_HSTS_INCLUDE_SUBDOMAINS` remains off unless every subdomain is HTTPS-only. Run `python ACI_backend/manage.py check --deploy` before deployment. The pytest suite uses an isolated in-memory SQLite database; run it with `pytest ACI_backend/ACIApp/tests`. Test settings prevent test runs from using the configured production database.
+
 The backend accepts PostgreSQL settings either as `DATABASE_URL` or as `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_HOST`, and `DATABASE_PORT`. For local commands against Render data, use the database's external connection URL from Render and keep it in the ignored `ACI_backend/.env`; do not commit or share it.
 
 ---

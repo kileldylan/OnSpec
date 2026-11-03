@@ -4,6 +4,7 @@ import json
 import logging
 
 from django.conf import settings
+from django.core.exceptions import RequestDataTooBig
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
@@ -31,6 +32,33 @@ def github_webhook(request):
     if request.method != "POST":
         return JsonResponse({"detail": "Method not allowed."}, status=405)
 
+    content_length = request.META.get("CONTENT_LENGTH")
+    if content_length:
+        try:
+            if int(content_length) > settings.GITHUB_WEBHOOK_MAX_BYTES:
+                return JsonResponse(
+                    {"detail": "Webhook payload is too large."},
+                    status=413,
+                )
+        except ValueError:
+            return JsonResponse(
+                {"detail": "Invalid content length."},
+                status=400,
+            )
+
+    try:
+        body = request.body
+    except RequestDataTooBig:
+        return JsonResponse(
+            {"detail": "Webhook payload is too large."},
+            status=413,
+        )
+    if len(body) > settings.GITHUB_WEBHOOK_MAX_BYTES:
+        return JsonResponse(
+            {"detail": "Webhook payload is too large."},
+            status=413,
+        )
+
     signature = request.headers.get("X-Hub-Signature-256")
     if not signature or not signature.startswith("sha256="):
         return JsonResponse({"detail": "Invalid webhook signature."}, status=401)
@@ -42,13 +70,20 @@ def github_webhook(request):
             status=503,
         )
     expected = "sha256=" + hmac.new(
-        webhook_secret.encode(), request.body, hashlib.sha256
+        webhook_secret.encode(), body, hashlib.sha256
     ).hexdigest()
     if not hmac.compare_digest(signature, expected):
         return JsonResponse({"detail": "Invalid webhook signature."}, status=401)
 
+    delivery_id = request.headers.get("X-GitHub-Delivery", "")
+    if not delivery_id or len(delivery_id) > 100:
+        return JsonResponse(
+            {"detail": "Invalid GitHub delivery ID."},
+            status=400,
+        )
+
     try:
-        payload = json.loads(request.body)
+        payload = json.loads(body)
     except json.JSONDecodeError:
         return JsonResponse({"detail": "Invalid JSON payload."}, status=400)
 
@@ -96,7 +131,7 @@ def github_webhook(request):
         job = enqueue_github_webhook(
             event=event,
             payload=payload,
-            delivery_id=request.headers.get("X-GitHub-Delivery"),
+            delivery_id=delivery_id,
         )
     except Exception:
         logger.exception("Unable to enqueue GitHub %s webhook.", event)
