@@ -58,12 +58,13 @@ No manual upload. No screenshot chasing.
 1. **Check Run** (Checks API)
    Name example: `ACI / Delivery Verification`
    - Stays `in_progress` while verification is queued; only a fully verified delivery concludes `success`. Partial, missing, stale, and failed evidence conclude `failure`.
-   - Markdown summary with criterion-level status.
+   - Markdown summary with criterion-level status and supporting evidence links.
+   - Evidence links identify the source file and available line span (for example, `auth/login.py:10-23`) and open the matching lines on GitHub. Long criteria wrap within the table, and every evidence link is listed on its own line in the Evidence column.
    - Can be set as a required status check in branch protection / rulesets.
 
 2. **One PR comment** (created or updated in place)
    - Clear list of criteria: verified / partial / missing.
-   - Short evidence pointers (file, test, commit SHA).
+   - Evidence pointers include source filenames and line ranges where available, linked to the exact GitHub lines.
    - The same comment is edited in place; unchanged reports are not rewritten.
 
 ### What users do
@@ -77,22 +78,15 @@ They do **not** need to visit a separate web app for normal review or merge deci
 
 ## Example Output
 
-**PR comment / Check summary:**
-ACI Delivery Verification — PARTIAL
+**GitHub Check / PR comment:**
 
-3 / 5 criteria verified
+| Criterion | Status | Evidence |
+|---|---|---|
+| User can request a password reset. | satisfied | [`auth/reset.py:10-23`](https://github.com/example/app/blob/abc123/auth/reset.py#L10-L23) |
+| Automated tests cover the reset flow. | satisfied | [`tests/test_reset.py:40-52`](https://github.com/example/app/blob/abc123/tests/test_reset.py#L40-L52) |
+| Reset links expire after the configured lifetime and cannot be reused. | partial | No supporting evidence |
 
-✓ User can request password reset Evidence: handler in auth/reset.py (commit a1b2c3d)
-
-✓ User can set a new password Evidence: endpoint + test coverage
-
-✓ Automated tests cover the flow Evidence: CI check “unit-tests” green on head SHA
-
-⚠ Reset email is sent Partial evidence found (email service called) Confidence: medium
-
-✗ Reset links must expire No sufficient implementation evidence found
-
-Delivery Decision: UNVERIFIED (required criteria incomplete)
+Long criteria wrap onto subsequent lines in the table. Every supporting evidence item is listed on its own line in the Evidence column.
 
 
 The Check can block merge until the missing criteria are addressed or explicitly waived.

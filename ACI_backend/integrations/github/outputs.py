@@ -148,18 +148,13 @@ def build_delivery_report(pull_request):
                 )
                 references = []
                 if result:
-                    evidence_items = list(
+                    references = [
                         _evidence_reference(item.evidence)
                         for item in result.evidence_links.select_related(
                             "evidence",
                         ).all()
-                    )
-                    references = evidence_items[:3]
-                    if len(evidence_items) > len(references):
-                        references.append(
-                            f"+{len(evidence_items) - len(references)} more"
-                        )
-                evidence_text = ", ".join(references) or "No supporting evidence"
+                    ]
+                evidence_text = "<br>".join(references) or "No supporting evidence"
                 rows.append(
                     f"| {_criterion_markdown(criterion.text)} | "
                     f"{criterion_status} | {evidence_text} |"

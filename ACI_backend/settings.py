@@ -32,7 +32,7 @@ GITHUB_OAUTH_CLIENT_ID = env("GITHUB_OAUTH_CLIENT_ID", default="")
 GITHUB_OAUTH_CLIENT_SECRET = env("GITHUB_OAUTH_CLIENT_SECRET", default="")
 GITHUB_OAUTH_REDIRECT_URI = env(
     "GITHUB_OAUTH_REDIRECT_URI",
-    default="https://on-spec.vercel.app/api/auth/github/callback/",
+    default="https://requora.deelan.co.ke/api/auth/github/callback/",
 )
 FRONTEND_URL = env(
     "FRONTEND_URL",
@@ -85,6 +85,7 @@ REQUIRED_HOSTS = [
     "www.deelan.co.ke",
     "api.deelan.co.ke",
     "app.deelan.co.ke",
+    "requora.deelan.co.ke",
 ]
 
 for host in REQUIRED_HOSTS:
@@ -252,6 +253,7 @@ CORS_ALLOWED_ORIGINS = [
     "https://deelan.co.ke",
     "https://www.deelan.co.ke",
     "https://app.deelan.co.ke",
+    "https://requora.deelan.co.ke",
 ]
 
 # Allow cookies/sessions/CSRF tokens to be passed
@@ -265,6 +267,7 @@ CSRF_TRUSTED_ORIGINS = [
     "https://www.deelan.co.ke",
     "https://api.deelan.co.ke",
     "https://app.deelan.co.ke",
+    "https://requora.deelan.co.ke",
 ]
 
 # Trust Render's proxy to tell Django the request is HTTPS

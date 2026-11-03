@@ -124,6 +124,40 @@ def test_delivery_report_wraps_long_criteria(pull_request):
 
 
 @pytest.mark.django_db
+def test_delivery_report_lists_all_evidence_on_separate_lines(pull_request):
+    criterion_result = CriterionVerification.objects.get(
+        verification__pull_request=pull_request,
+    )
+    for index in range(2, 7):
+        evidence = Evidence.objects.create(
+            requirement=criterion_result.criterion.requirement,
+            pull_request=pull_request,
+            evidence_type="code",
+            metadata={
+                "filename": f"src/module_{index}.py",
+                "line_start": index * 10,
+                "line_end": index * 10 + 2,
+                "source_url": (
+                    "https://github.com/aci/delivery/blob/main/"
+                    f"src/module_{index}.py#L{index * 10}-L{index * 10 + 2}"
+                ),
+            },
+        )
+        CriterionVerificationEvidence.objects.create(
+            criterion_verification=criterion_result,
+            evidence=evidence,
+        )
+
+    _, summary = build_delivery_report(pull_request)
+
+    assert "[tests/test\\_reset\\.py:10-23]" in summary
+    for index in range(2, 7):
+        assert f"[src/module\\_{index}\\.py:" in summary
+    assert "<br>" in summary
+    assert "more" not in summary
+
+
+@pytest.mark.django_db
 def test_publish_delivery_result_creates_check_and_persists_single_comment(
     pull_request,
 ):
