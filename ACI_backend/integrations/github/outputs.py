@@ -1,7 +1,8 @@
 import hashlib
 import logging
 import re
-from urllib.parse import urlparse
+import textwrap
+from urllib.parse import unquote, urlparse
 
 from django.utils import timezone
 
@@ -36,14 +37,65 @@ def _safe_markdown_text(value):
     return re.sub(r"([\\`*_{}\[\]()#+.!|<>])", r"\\\1", value)
 
 
+def _criterion_markdown(text, *, width=48):
+    lines = textwrap.wrap(
+        str(text),
+        width=width,
+        break_long_words=False,
+        break_on_hyphens=False,
+    )
+    return "<br>".join(_safe_markdown_text(line) for line in lines)
+
+
 def _evidence_reference(evidence):
     metadata = evidence.metadata if isinstance(evidence.metadata, dict) else {}
     url = metadata.get("source_url") or metadata.get("url")
-    if isinstance(url, str):
-        parsed = urlparse(url)
-        if parsed.scheme == "https" and parsed.hostname == "github.com":
+    parsed = urlparse(url) if isinstance(url, str) else None
+    valid_github_url = (
+        parsed is not None
+        and parsed.scheme == "https"
+        and parsed.hostname == "github.com"
+    )
+    filename = metadata.get("filename")
+    if not filename and parsed and "/blob/" in parsed.path:
+        filename = "/".join(parsed.path.split("/")[5:])
+
+    line_start = metadata.get("line_start")
+    line_end = metadata.get("line_end")
+    if not (
+        isinstance(line_start, int)
+        and isinstance(line_end, int)
+        and line_start > 0
+        and line_end >= line_start
+    ) and parsed:
+        match = re.fullmatch(r"L(\d+)(?:-L(\d+))?", parsed.fragment)
+        if match:
+            line_start = int(match.group(1))
+            line_end = int(match.group(2) or line_start)
+
+    if filename:
+        label = unquote(str(filename))
+        if isinstance(line_start, int) and isinstance(line_end, int):
+            line_range = (
+                str(line_start)
+                if line_start == line_end
+                else f"{line_start}-{line_end}"
+            )
+            label = f"{label}:{line_range}"
+        label = _safe_markdown_text(label)
+        if valid_github_url:
+            if isinstance(line_start, int) and isinstance(line_end, int):
+                url = parsed._replace(
+                    fragment=f"L{line_start}-L{line_end}",
+                ).geturl()
             safe_url = url.replace("(", "%28").replace(")", "%29")
-            return f"[{evidence.status} evidence]({safe_url})"
+            return f"[{label}]({safe_url})"
+        return label
+
+    if valid_github_url:
+        safe_url = url.replace("(", "%28").replace(")", "%29")
+        label = f"{evidence.evidence_type} evidence"
+        return f"[{_safe_markdown_text(label)}]({safe_url})"
     description = evidence.description.strip()
     return _safe_markdown_text(description) if description else "evidence recorded"
 
@@ -96,15 +148,20 @@ def build_delivery_report(pull_request):
                 )
                 references = []
                 if result:
-                    references = [
+                    evidence_items = list(
                         _evidence_reference(item.evidence)
                         for item in result.evidence_links.select_related(
                             "evidence",
                         ).all()
-                    ]
+                    )
+                    references = evidence_items[:3]
+                    if len(evidence_items) > len(references):
+                        references.append(
+                            f"+{len(evidence_items) - len(references)} more"
+                        )
                 evidence_text = ", ".join(references) or "No supporting evidence"
                 rows.append(
-                    f"| {_safe_markdown_text(criterion.text)} | "
+                    f"| {_criterion_markdown(criterion.text)} | "
                     f"{criterion_status} | {evidence_text} |"
                 )
         else:

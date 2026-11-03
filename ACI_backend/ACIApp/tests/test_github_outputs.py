@@ -79,7 +79,15 @@ def pull_request():
         pull_request=pull_request,
         evidence_type="test",
         description="Reset email behavior is covered by a test.",
-        metadata={"source_url": "https://github.com/aci/delivery/blob/main/tests/test_reset.py"},
+        metadata={
+            "filename": "tests/test_reset.py",
+            "line_start": 10,
+            "line_end": 23,
+            "source_url": (
+                "https://github.com/aci/delivery/blob/main/"
+                "tests/test_reset.py#L10-L23"
+            ),
+        },
     )
     CriterionVerificationEvidence.objects.create(
         criterion_verification=criterion_result,
@@ -94,7 +102,25 @@ def test_delivery_report_is_evidence_first(pull_request):
 
     assert status == "verified"
     assert "A reset email is sent\\." in summary
-    assert "[valid evidence](https://github.com/aci/delivery/blob/main/tests/test_reset.py)" in summary
+    assert (
+        "[tests/test\\_reset\\.py:10-23]("
+        "https://github.com/aci/delivery/blob/main/tests/test_reset.py#L10-L23)"
+    ) in summary
+
+
+@pytest.mark.django_db
+def test_delivery_report_wraps_long_criteria(pull_request):
+    criterion = RequirementCriterion.objects.get(text="A reset email is sent.")
+    criterion.text = (
+        "After repeated failed attempts, reject additional sign-ins temporarily "
+        "and allow access again when the configured lockout expires."
+    )
+    criterion.save(update_fields=["text"])
+
+    _, summary = build_delivery_report(pull_request)
+
+    assert "After repeated failed attempts, reject<br>" in summary
+    assert "configured lockout expires\\." in summary
 
 
 @pytest.mark.django_db
@@ -119,8 +145,9 @@ def test_publish_delivery_result_creates_check_and_persists_single_comment(
                             "| Criterion | Status | Evidence |\n"
                             "|---|---|---|\n"
                             "| A reset email is sent\\. | satisfied | "
-                            "[valid evidence](https://github.com/aci/delivery/"
-                            "blob/main/tests/test_reset.py) |"
+                                "[tests/test\\_reset\\.py:10-23](https://github.com/"
+                                "aci/delivery/blob/main/tests/test_reset.py"
+                                "#L10-L23) |"
                         ),
                     },
                 },
@@ -141,8 +168,9 @@ def test_publish_delivery_result_creates_check_and_persists_single_comment(
                             "| Criterion | Status | Evidence |\n"
                             "|---|---|---|\n"
                             "| A reset email is sent\\. | satisfied | "
-                            "[valid evidence](https://github.com/aci/delivery/"
-                            "blob/main/tests/test_reset.py) |"
+                                "[tests/test\\_reset\\.py:10-23](https://github.com/"
+                                "aci/delivery/blob/main/tests/test_reset.py"
+                                "#L10-L23) |"
                         ),
                     },
                 },
@@ -158,7 +186,9 @@ def test_publish_delivery_result_creates_check_and_persists_single_comment(
     assert check_payload["name"] == CHECK_NAME
     assert check_payload["head_sha"] == pull_request.head_sha
     assert check_payload["conclusion"] == "success"
-    assert "https://github.com/aci/delivery/blob/main/tests/test_reset.py" in (
+    assert (
+        "https://github.com/aci/delivery/blob/main/tests/test_reset.py#L10-L23"
+        in
         check_payload["output"]["summary"]
     )
 
