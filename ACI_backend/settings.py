@@ -41,7 +41,7 @@ GITHUB_OAUTH_CLIENT_ID = env("GITHUB_OAUTH_CLIENT_ID", default="")
 GITHUB_OAUTH_CLIENT_SECRET = env("GITHUB_OAUTH_CLIENT_SECRET", default="")
 GITHUB_OAUTH_REDIRECT_URI = env(
     "GITHUB_OAUTH_REDIRECT_URI",
-    default="https://requora.deelan.co.ke/api/auth/github/callback/",
+    default="https://api.deelan.co.ke/api/auth/github/callback/",
 )
 FRONTEND_URL = env(
     "FRONTEND_URL",
