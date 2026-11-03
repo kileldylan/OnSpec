@@ -18,6 +18,7 @@ import { useAuth } from '../context/AuthContext';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
 import { aciApi } from '../api/aci';
+import { githubAppInstallUrl } from '../config/githubApp';
 
 const navItems = [
   { icon: GitPullRequest, label: 'Pull Requests', path: '/pull-requests' },
@@ -30,7 +31,6 @@ const Navigation = ({ mobile = false, onNavigate }) => {
   const location = useLocation();
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
-  const githubAppSlug = import.meta.env.VITE_GITHUB_APP_SLUG;
   const [connectingGitHub, setConnectingGitHub] = useState(false);
 
   const connectGitHubAccount = async () => {
@@ -98,25 +98,29 @@ const Navigation = ({ mobile = false, onNavigate }) => {
 
       {/* Footer */}
       <div className="border-t border-dark-border pt-4 space-y-3">
-        <a
-          href={githubAppSlug
-            ? `https://github.com/apps/${githubAppSlug}/installations/new`
-            : undefined}
-          target="_blank"
-          rel="noreferrer"
-          aria-disabled={!githubAppSlug}
-          className={clsx(
-            'w-full min-w-0 flex items-center gap-3 px-3 py-2 rounded-xl transition-colors text-dark-muted',
-            githubAppSlug
-              ? 'hover:bg-dark-hover hover:text-dark-text'
-              : 'cursor-not-allowed opacity-60'
-          )}
-        >
-          <GitBranch className="w-5 h-5" />
-          <span className="min-w-0 truncate text-left text-sm font-medium">
-            {githubAppSlug ? 'Install GitHub App' : 'Set GitHub App slug'}
+        {githubAppInstallUrl ? (
+          <a
+            href={githubAppInstallUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="w-full min-w-0 flex items-center gap-3 px-3 py-2 rounded-xl transition-colors text-dark-muted hover:bg-dark-hover hover:text-dark-text"
+          >
+            <GitBranch className="w-5 h-5" />
+            <span className="min-w-0 truncate text-left text-sm font-medium">
+              Install GitHub App
+            </span>
+          </a>
+        ) : (
+          <span
+            aria-disabled="true"
+            className="w-full min-w-0 flex items-center gap-3 px-3 py-2 rounded-xl text-dark-muted opacity-60"
+          >
+            <GitBranch className="w-5 h-5" />
+            <span className="min-w-0 truncate text-left text-sm font-medium">
+              Set GitHub App slug
+            </span>
           </span>
-        </a>
+        )}
         <button
           type="button"
           onClick={connectGitHubAccount}

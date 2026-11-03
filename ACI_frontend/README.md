@@ -9,7 +9,7 @@ The public home page explains and links to the GitHub App. Developers install th
 ## Local development
 
 1. Install frontend dependencies with `npm install`.
-2. The public page links to the existing `aci-delivery-verification` GitHub App by default. Set `VITE_GITHUB_APP_SLUG` only if you need to override that App slug for another deployment.
+2. Set `VITE_GITHUB_APP_SLUG=requora-delivery-verification` in your local `.env` (copy `.env.example`) and in the Vercel project’s Production environment variables. The public page and console share this setting. Redeploy after changing Vercel environment variables.
 3. Configure `VITE_API_URL` when the backend URL differs from the deployed default; local development uses the Vite proxy.
 4. Start the frontend with `npm run dev`.
 

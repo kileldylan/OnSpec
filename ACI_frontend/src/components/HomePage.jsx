@@ -23,6 +23,7 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import BrandMark from './BrandMark';
 import '../App.css';
+import { githubAppInstallUrl } from '../config/githubApp';
 
 const workflowSteps = [
   {
@@ -105,9 +106,6 @@ const criteria = [
 
 const HomePage = () => {
   const [menuOpen, setMenuOpen] = useState(false);
-  const githubAppSlug =
-    import.meta.env.VITE_GITHUB_APP_SLUG || 'aci-delivery-verification';
-  const installUrl = `https://github.com/apps/${githubAppSlug}/installations/new`;
 
   const closeMenu = () => setMenuOpen(false);
 
@@ -143,15 +141,21 @@ const HomePage = () => {
             <a href="#features" onClick={closeMenu}>Features</a>
             <a href="#integrations" onClick={closeMenu}>Integrations</a>
             <Link to="/login" onClick={closeMenu}>Console</Link>
-            <a
-              className="landing-nav-cta"
-              href={installUrl}
-              onClick={closeMenu}
-              rel="noreferrer"
-              target="_blank"
-            >
-              Install on GitHub <ArrowUpRight size={15} />
-            </a>
+            {githubAppInstallUrl ? (
+              <a
+                className="landing-nav-cta"
+                href={githubAppInstallUrl}
+                onClick={closeMenu}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Install on GitHub <ArrowUpRight size={15} />
+              </a>
+            ) : (
+              <span className="landing-nav-cta is-disabled">
+                GitHub App not configured
+              </span>
+            )}
           </nav>
         </div>
       </header>
@@ -171,14 +175,20 @@ const HomePage = () => {
             your team has delivered.
           </p>
           <div className="landing-hero-actions">
-            <a
-              className="landing-button landing-button-primary"
-              href={installUrl}
-              rel="noreferrer"
-              target="_blank"
-            >
-              Install Requora on GitHub <ArrowUpRight size={17} />
-            </a>
+            {githubAppInstallUrl ? (
+              <a
+                className="landing-button landing-button-primary"
+                href={githubAppInstallUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                Install Requora on GitHub <ArrowUpRight size={17} />
+              </a>
+            ) : (
+              <span className="landing-button landing-button-disabled">
+                GitHub App installation unavailable
+              </span>
+            )}
             <a className="landing-button landing-button-secondary" href="#how-it-works">
               See how it works <ArrowDown size={16} />
             </a>
@@ -382,14 +392,20 @@ const HomePage = () => {
           <p className="landing-section-kicker">REQUIREMENTS IN. EVIDENCE OUT.</p>
           <h2>Ship with evidence, not assumptions.</h2>
           <p>Connect your GitHub repositories and start verifying delivery against real requirements.</p>
-          <a
-            className="landing-button landing-button-primary"
-            href={installUrl}
-            rel="noreferrer"
-            target="_blank"
-          >
-            Get started with Requora <ArrowUpRight size={17} />
-          </a>
+          {githubAppInstallUrl ? (
+            <a
+              className="landing-button landing-button-primary"
+              href={githubAppInstallUrl}
+              rel="noreferrer"
+              target="_blank"
+            >
+              Get started with Requora <ArrowUpRight size={17} />
+            </a>
+          ) : (
+            <span className="landing-button landing-button-disabled">
+              GitHub App installation unavailable
+            </span>
+          )}
         </div>
       </section>
 
