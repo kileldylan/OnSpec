@@ -1,9 +1,10 @@
 import logging
 
 from django.conf import settings
-from django.db.models import Prefetch
+from django.db.models import OuterRef, Prefetch, Subquery
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
 from rest_framework.response import Response
 
 from ACI_backend.ACIApp.models import (
@@ -16,6 +17,7 @@ from ACI_backend.ACIApp.models import (
     RequirementPullRequest,
     TestExecution,
     Verification,
+    VerificationEvidence,
     VerificationRun,
 )
 from ACI_backend.api.serializers import (
@@ -29,6 +31,7 @@ from ACI_backend.api.serializers import (
     VerificationSerializer,
 )
 from ACI_backend.api.permissions import visible_repositories
+from ACI_backend.api.pagination import OptionalPaginationMixin
 from ACI_backend.integrations.verification.criteria import (
     rank_criterion_evidence,
 )
@@ -49,7 +52,7 @@ from ACI_backend.integrations.verification.service import (
 logger = logging.getLogger(__name__)
 
 
-class RepositoryViewSet(viewsets.ModelViewSet):
+class RepositoryViewSet(OptionalPaginationMixin, viewsets.ModelViewSet):
     serializer_class = RepositorySerializer
 
     def get_queryset(self):
@@ -66,7 +69,18 @@ class RepositoryViewSet(viewsets.ModelViewSet):
     def pull_requests(self, request, pk=None):
         repository = self.get_object()
         pull_requests = repository.pull_requests.order_by("-updated_at", "-id")
-        return Response(PullRequestSerializer(pull_requests, many=True).data)
+        return self.list_response(pull_requests, PullRequestSerializer)
+
+    @action(detail=False, methods=["get"], url_path="pull-requests")
+    def all_pull_requests(self, request):
+        repository_ids = visible_repositories(
+            Repository.objects.all(),
+            request.user,
+        ).values("id")
+        pull_requests = PullRequest.objects.filter(
+            repository_id__in=repository_ids,
+        ).select_related("repository").order_by("-updated_at", "-id")
+        return self.list_response(pull_requests, PullRequestSerializer)
 
     @action(detail=True, methods=["get"], url_path=r"pull-requests/(?P<pr_pk>[^/.]+)")
     def pull_request_detail(self, request, pk=None, pr_pk=None):
@@ -126,7 +140,18 @@ class RepositoryViewSet(viewsets.ModelViewSet):
     def requirements(self, request, pk=None):
         repository = self.get_object()
         requirements = repository.requirements.order_by("-updated_at", "-id")
-        return Response(RequirementSerializer(requirements, many=True).data)
+        return self.list_response(requirements, RequirementSerializer)
+
+    @action(detail=False, methods=["get"], url_path="requirements")
+    def all_requirements(self, request):
+        repository_ids = visible_repositories(
+            Repository.objects.all(),
+            request.user,
+        ).values("id")
+        requirements = Requirement.objects.filter(
+            repository_id__in=repository_ids,
+        ).order_by("-updated_at", "-id")
+        return self.list_response(requirements, RequirementSerializer)
 
     @action(detail=True, methods=["post"], url_path="start-verification")
     def start_verification(self, request, pk=None):
@@ -212,7 +237,7 @@ class RepositoryViewSet(viewsets.ModelViewSet):
         )
 
 
-class EvidenceViewSet(viewsets.ReadOnlyModelViewSet):
+class EvidenceViewSet(OptionalPaginationMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = EvidenceSerializer
 
     def get_queryset(self):
@@ -240,7 +265,7 @@ class EvidenceViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset
 
 
-class VerificationViewSet(viewsets.ReadOnlyModelViewSet):
+class VerificationViewSet(OptionalPaginationMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = VerificationSerializer
 
     def get_queryset(self):
@@ -255,12 +280,22 @@ class VerificationViewSet(viewsets.ReadOnlyModelViewSet):
                     ).order_by("id"),
                 )
             )
+        prefetches.append(
+            Prefetch(
+                "evidence_links",
+                queryset=VerificationEvidence.objects.select_related(
+                    "evidence__changed_file",
+                    "evidence__commit",
+                ).prefetch_related(
+                    "evidence__invalidations__triggering_changed_file",
+                ).order_by("id"),
+            )
+        )
         queryset = visible_repositories(
             Verification.objects.select_related(
             "requirement",
             "pull_request",
             ).prefetch_related(
-            "evidence_links__evidence__invalidations__triggering_changed_file",
             "decisions",
             *prefetches,
             ).order_by("-created_at"),
@@ -277,9 +312,49 @@ class VerificationViewSet(viewsets.ReadOnlyModelViewSet):
             queryset = queryset.filter(requirement_id=requirement_id)
         if pull_request_id:
             queryset = queryset.filter(pull_request_id=pull_request_id)
+        pull_request_ids = self._query_id_list("pull_requests")
+        if pull_request_ids:
+            queryset = queryset.filter(pull_request_id__in=pull_request_ids)
+        requirement_ids = self._query_id_list("requirements")
+        if requirement_ids:
+            queryset = queryset.filter(requirement_id__in=requirement_ids)
+        latest_per = self.request.query_params.get("latest_per")
+        if latest_per:
+            if latest_per == "pull_request":
+                latest_verification_id = Verification.objects.filter(
+                    pull_request_id=OuterRef("pull_request_id"),
+                ).order_by("-created_at", "-id").values("id")[:1]
+                queryset = queryset.filter(
+                    pull_request_id__isnull=False,
+                    id=Subquery(latest_verification_id),
+                )
+            elif latest_per == "requirement":
+                latest_verification_id = Verification.objects.filter(
+                    requirement_id=OuterRef("requirement_id"),
+                ).order_by("-created_at", "-id").values("id")[:1]
+                queryset = queryset.filter(
+                    requirement_id__isnull=False,
+                    id=Subquery(latest_verification_id),
+                )
+            else:
+                raise ValidationError({
+                    "latest_per": "Use 'pull_request' or 'requirement'.",
+                })
         if status:
             queryset = queryset.filter(status=status)
         return queryset
+
+    def _query_id_list(self, key):
+        value = self.request.query_params.get(key)
+        if not value:
+            return []
+        try:
+            identifiers = [int(item) for item in value.split(",")]
+        except ValueError:
+            raise ValidationError({key: "Provide comma-separated positive IDs."})
+        if not identifiers or any(identifier < 1 for identifier in identifiers):
+            raise ValidationError({key: "Provide comma-separated positive IDs."})
+        return identifiers
 
     def get_serializer_context(self):
         context = super().get_serializer_context()
@@ -396,7 +471,7 @@ class VerificationViewSet(viewsets.ReadOnlyModelViewSet):
         )
 
 
-class VerificationRunViewSet(viewsets.ReadOnlyModelViewSet):
+class VerificationRunViewSet(OptionalPaginationMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = VerificationRunSerializer
 
     def get_queryset(self):
@@ -419,7 +494,7 @@ class VerificationRunViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset
 
 
-class TestExecutionViewSet(viewsets.ReadOnlyModelViewSet):
+class TestExecutionViewSet(OptionalPaginationMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = TestExecutionSerializer
 
     def get_queryset(self):
@@ -444,7 +519,7 @@ class TestExecutionViewSet(viewsets.ReadOnlyModelViewSet):
         return queryset
 
 
-class DeliveryDecisionViewSet(viewsets.ReadOnlyModelViewSet):
+class DeliveryDecisionViewSet(OptionalPaginationMixin, viewsets.ReadOnlyModelViewSet):
     serializer_class = DeliveryDecisionSerializer
 
     def get_queryset(self):

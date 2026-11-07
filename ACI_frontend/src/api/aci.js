@@ -62,6 +62,10 @@ export const aciApi = {
   // ============ REPOSITORIES ============
   getRepositories: (params = {}) => 
     api.get('/repositories/', { params }),
+  getAllPullRequests: (params = {}) =>
+    api.get('/repositories/pull-requests/', { params }),
+  getAllRequirements: (params = {}) =>
+    api.get('/repositories/requirements/', { params }),
   
   getRepository: (id) => 
     api.get(`/repositories/${id}/`),

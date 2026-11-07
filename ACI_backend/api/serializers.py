@@ -14,6 +14,7 @@ from ACI_backend.ACIApp.models import (
     Requirement,
     TestExecution,
     Verification,
+    VerificationEvidence,
     VerificationRun,
 )
 from ACI_backend.integrations.verification.criteria import (
@@ -276,25 +277,37 @@ class VerificationSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_evidence_ids(self, verification):
-        return list(
-            verification.evidence_links.values_list(
-                "evidence_id",
-                flat=True,
-            )
-        )
+        return [
+            link.evidence_id
+            for link in verification.evidence_links.all()
+        ]
 
     def get_evidence_count(self, verification):
+        if hasattr(verification, "_prefetched_objects_cache") and (
+            "evidence_links" in verification._prefetched_objects_cache
+        ):
+            return len(verification.evidence_links.all())
         return verification.evidence_links.count()
 
     def get_evidence(self, verification):
-        evidence = Evidence.objects.filter(
-            verification_links__verification=verification,
-        ).select_related(
-            "changed_file",
-            "commit",
-        ).prefetch_related(
-            "invalidations__triggering_changed_file",
-        ).order_by("id")[:3]
+        if "evidence_links" in getattr(
+            verification,
+            "_prefetched_objects_cache",
+            {},
+        ):
+            evidence = [
+                link.evidence
+                for link in verification.evidence_links.all()[:3]
+            ]
+        else:
+            evidence = Evidence.objects.filter(
+                verification_links__verification=verification,
+            ).select_related(
+                "changed_file",
+                "commit",
+            ).prefetch_related(
+                "invalidations__triggering_changed_file",
+            ).order_by("id")[:3]
         return EvidenceSerializer(evidence, many=True).data
 
     def get_criteria_evaluations(self, verification):

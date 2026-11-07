@@ -1,6 +1,7 @@
 // src/components/Requirements.jsx
-import React, { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   FileText,
   CheckCircle,
@@ -11,6 +12,8 @@ import {
   Loader2,
   Search,
   Filter,
+  ChevronLeft,
+  ChevronRight,
   Calendar,
   ExternalLink,
   GitPullRequest,
@@ -21,6 +24,7 @@ import { aciApi } from '../api/aci';
 import StatusBadge from './StatusBadge';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 const responseItems = (response) => {
   const payload = response?.data;
@@ -31,73 +35,72 @@ const responseItems = (response) => {
 
 export const Requirements = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [requirements, setRequirements] = useState([]);
-  const [verifications, setVerifications] = useState({});
-  const [repositories, setRepositories] = useState([]);
   const [selectedRepo, setSelectedRepo] = useState('all');
+  const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [sourceFilter, setSourceFilter] = useState('all');
-  const [lastUpdated, setLastUpdated] = useState(new Date());
+  const { user } = useAuth();
+
+  const query = useQuery({
+    queryKey: ['requirements', user?.id, selectedRepo, page],
+    enabled: Boolean(user),
+    queryFn: async () => {
+      const [repoResponse, requirementResponse] = await Promise.all([
+        aciApi.getRepositories({ limit: 100 }),
+        selectedRepo === 'all'
+          ? aciApi.getAllRequirements({ page, page_size: 50 })
+          : aciApi.getRepositoryRequirements(selectedRepo, { page, page_size: 50 }),
+      ]);
+      const repos = responseItems(repoResponse);
+      const repoById = new Map(repos.map((repo) => [String(repo.id), repo]));
+      const items = responseItems(requirementResponse).map((requirement) => ({
+        ...requirement,
+        repo: repoById.get(String(requirement.repository))?.full_name || 'Unknown',
+      }));
+      items.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+      const verificationResponse = items.length
+        ? await aciApi.getVerifications({
+          requirements: items.map((item) => item.id).join(','),
+          latest_per: 'requirement',
+        })
+        : { data: [] };
+      const verifications = {};
+      responseItems(verificationResponse).forEach((verification) => {
+        if (verification.requirement?.id && !verifications[verification.requirement.id]) {
+          verifications[verification.requirement.id] = verification;
+        }
+      });
+
+      return {
+        repositories: repos,
+        requirements: items,
+        verifications,
+        totalCount: requirementResponse.data?.count ?? items.length,
+        totalPages: requirementResponse.data?.count
+          ? Math.ceil(requirementResponse.data.count / 50)
+          : 1,
+      };
+    },
+    staleTime: 60_000,
+  });
+  const repositories = query.data?.repositories || [];
+  const requirements = query.data?.requirements || [];
+  const verifications = query.data?.verifications || {};
+  const loading = query.isLoading;
+  const refreshing = query.isFetching && !query.isLoading;
+  const lastUpdated = query.dataUpdatedAt ? new Date(query.dataUpdatedAt) : new Date();
 
   useEffect(() => {
-    fetchData();
-  }, [selectedRepo]);
-
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      
-      // Fetch repositories
-      const repoRes = await aciApi.getRepositories();
-      const repos = responseItems(repoRes);
-      setRepositories(repos);
-
-      // Fetch requirements
-      let reqs = [];
-      if (selectedRepo === 'all') {
-        for (const repo of repos) {
-          const reqRes = await aciApi.getRepositoryRequirements(repo.id, { limit: 50 });
-          const repoReqs = responseItems(reqRes).map(r => ({ ...r, repo: repo.full_name }));
-          reqs = [...reqs, ...repoReqs];
-        }
-      } else {
-        const reqRes = await aciApi.getRepositoryRequirements(selectedRepo, { limit: 50 });
-        const repo = repos.find(r => r.id === parseInt(selectedRepo));
-        reqs = responseItems(reqRes).map(r => ({ ...r, repo: repo?.full_name || 'Unknown' }));
-      }
-
-      // Sort by creation date
-      reqs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      setRequirements(reqs);
-
-      // Fetch verifications for each requirement
-      const verMap = {};
-      for (const req of reqs) {
-        const verRes = await aciApi.getVerifications({ requirement: req.id });
-        const vers = responseItems(verRes);
-        if (vers.length > 0) {
-          verMap[req.id] = vers[0];
-        }
-      }
-      setVerifications(verMap);
-
-      setLastUpdated(new Date());
-
-    } catch (error) {
-      console.error('Error fetching requirements:', error);
+    if (query.error) {
+      console.error('Error fetching requirements:', query.error);
       toast.error('Failed to load requirements');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
     }
-  };
+  }, [query.error]);
 
   const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchData();
+    await query.refetch();
     toast.success('Requirements refreshed');
   };
 
@@ -190,7 +193,10 @@ export const Requirements = () => {
             <Filter className="w-4 h-4 text-dark-muted" />
             <select
               value={selectedRepo}
-              onChange={(e) => setSelectedRepo(e.target.value)}
+              onChange={(e) => {
+                setSelectedRepo(e.target.value);
+                setPage(1);
+              }}
               className="w-full min-w-0 px-3 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle text-sm"
             >
               <option value="all">All Repositories</option>
@@ -364,9 +370,37 @@ export const Requirements = () => {
       )}
 
       {/* Footer */}
-      <div className="flex items-center justify-between text-xs text-dark-muted/60 border-t border-dark-border pt-4">
-        <span>Showing {filteredRequirements.length} of {requirements.length} requirements</span>
-        <span>Last updated: {formatTime(lastUpdated)}</span>
+      <div className="flex flex-col gap-3 border-t border-dark-border pt-4 text-xs text-dark-muted/60 sm:flex-row sm:items-center sm:justify-between">
+        <span>
+          Showing {filteredRequirements.length} of {requirements.length} loaded requirements
+          {query.data?.totalCount > requirements.length
+            ? ` (${query.data.totalCount} total)`
+            : ''}
+        </span>
+        <div className="flex items-center justify-between gap-3 sm:justify-end">
+          <span>Last updated: {formatTime(lastUpdated)}</span>
+          <div className="flex items-center gap-2">
+            <button
+              aria-label="Previous requirements page"
+              className="rounded border border-dark-border p-1.5 disabled:opacity-40"
+              disabled={page <= 1 || loading}
+              onClick={() => setPage((current) => current - 1)}
+              type="button"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span>{page} / {query.data?.totalPages || 1}</span>
+            <button
+              aria-label="Next requirements page"
+              className="rounded border border-dark-border p-1.5 disabled:opacity-40"
+              disabled={page >= (query.data?.totalPages || 1) || loading}
+              onClick={() => setPage((current) => current + 1)}
+              type="button"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );

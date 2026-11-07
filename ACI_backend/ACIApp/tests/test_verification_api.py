@@ -32,6 +32,112 @@ def test_api_requires_authentication():
 
 
 @pytest.mark.django_db
+def test_list_endpoints_support_opt_in_pagination_and_batched_verification_filters():
+    user = get_user_model().objects.create_user(
+        username="paginated-reader",
+    )
+    repository = Repository.objects.create(
+        github_id=987000,
+        owner="aci",
+        name="paginated-repository",
+        full_name="aci/paginated-repository",
+    )
+    repository.members.add(user)
+    pull_requests = []
+    requirements = []
+    for index in range(2):
+        pull_request = PullRequest.objects.create(
+            repository=repository,
+            github_id=987010 + index,
+            number=10 + index,
+            title=f"PR {index}",
+            author="aci",
+            source_branch=f"feature-{index}",
+            target_branch="main",
+            base_sha="b" * 40,
+            head_sha=chr(ord("a") + index) * 40,
+            state="open",
+            is_merged=False,
+            created_at="2026-08-18T10:00:00Z",
+            updated_at="2026-08-18T10:00:00Z",
+        )
+        requirement = Requirement.objects.create(
+            repository=repository,
+            external_id=f"REQ-{index}",
+            source="manual",
+            title=f"Requirement {index}",
+        )
+        Verification.objects.create(
+            requirement=requirement,
+            pull_request=pull_request,
+            status="verified",
+        )
+        pull_requests.append(pull_request)
+        requirements.append(requirement)
+
+    client = APIClient()
+    client.force_authenticate(user=user)
+    pull_request_response = client.get(
+        reverse("repository-all-pull-requests"),
+        {"limit": 1},
+    )
+    second_pull_request_page = client.get(
+        reverse("repository-all-pull-requests"),
+        {"page": 2, "page_size": 1},
+    )
+    legacy_pull_request_response = client.get(
+        reverse("repository-all-pull-requests"),
+    )
+    requirement_response = client.get(
+        reverse("repository-all-requirements"),
+        {"limit": 1},
+    )
+    verification_response = client.get(
+        reverse("verification-list"),
+        {
+            "pull_requests": ",".join(
+                str(item.id) for item in pull_requests
+            ),
+            "limit": 1,
+        },
+    )
+    latest_verifications_response = client.get(
+        reverse("verification-list"),
+        {
+            "pull_requests": ",".join(
+                str(item.id) for item in pull_requests
+            ),
+            "latest_per": "pull_request",
+        },
+    )
+
+    assert pull_request_response.status_code == 200
+    assert pull_request_response.json()["count"] == 2
+    assert len(pull_request_response.json()["results"]) == 1
+    assert second_pull_request_page.status_code == 200
+    assert len(second_pull_request_page.json()["results"]) == 1
+    assert (
+        second_pull_request_page.json()["results"][0]["id"]
+        != pull_request_response.json()["results"][0]["id"]
+    )
+    assert legacy_pull_request_response.status_code == 200
+    assert isinstance(legacy_pull_request_response.json(), list)
+    assert len(legacy_pull_request_response.json()) == 2
+    assert requirement_response.status_code == 200
+    assert requirement_response.json()["count"] == 2
+    assert len(requirement_response.json()["results"]) == 1
+    assert verification_response.status_code == 200
+    assert verification_response.json()["count"] == 2
+    assert len(verification_response.json()["results"]) == 1
+    assert latest_verifications_response.status_code == 200
+    assert len(latest_verifications_response.json()) == 2
+    assert {
+        item["requirement"]["id"]
+        for item in verification_response.json()["results"]
+    }.issubset({item.id for item in requirements})
+
+
+@pytest.mark.django_db
 def test_repository_creator_is_added_as_member():
     user = get_user_model().objects.create_user(
         username="repository-owner",

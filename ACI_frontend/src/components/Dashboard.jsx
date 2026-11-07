@@ -1,8 +1,9 @@
 
 // src/components/Dashboard.jsx
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
   AlertTriangle,
@@ -26,6 +27,7 @@ import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
 
 import { aciApi } from '../api/aci';
+import { useAuth } from '../context/AuthContext';
 import StatusBadge from './StatusBadge';
 import StatsCard from './StatsCard';
 BarChart3
@@ -46,6 +48,8 @@ const responseItems = (response) => {
 
   return [];
 };
+
+const EMPTY_ARRAY = [];
 
 
 const safeNumber = (value) => {
@@ -161,120 +165,58 @@ const getStatusClasses = (status) => {
 
 export const Dashboard = () => {
   const navigate = useNavigate();
-
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-
-  const [lastUpdated, setLastUpdated] = useState(new Date());
-
-  const [repositories, setRepositories] = useState([]);
-  const [verifications, setVerifications] = useState([]);
-  const [recentPRs, setRecentPRs] = useState([]);
-
-  /* ------------------------------------------------------------------------ */
-  /* Data fetching                                                            */
-  /* ------------------------------------------------------------------------ */
-
-  const fetchData = useCallback(async () => {
-    try {
-      const [
-        repositoriesResponse,
-        verificationsResponse,
-      ] = await Promise.all([
-        aciApi.getRepositories(),
+  const { user } = useAuth();
+  const dashboardQuery = useQuery({
+    queryKey: ['dashboard', user?.id],
+    enabled: Boolean(user),
+    queryFn: async () => {
+      const [repositoryResponse, verificationResponse] = await Promise.all([
+        aciApi.getRepositories({ limit: 100 }),
         aciApi.getVerifications({ limit: 50 }),
       ]);
-
-      const repos = responseItems(repositoriesResponse);
-      const verificationItems = responseItems(verificationsResponse);
-
-      setRepositories(repos);
-      setVerifications(verificationItems);
-
-      /*
-       * Fetch PRs from repositories independently.
-
-       * This avoids the old behaviour where only the first repository was
-       * represented on the dashboard.
-       */
-      if (repos.length > 0) {
-        const prResponses = await Promise.all(
-          repos.slice(0, 10).map((repo) =>
-            aciApi
-              .getRepositoryPullRequests(repo.id, { limit: 5 })
-              .then(responseItems)
-              .catch((error) => {
-                console.warn(
-                  `Unable to load PRs for repository ${repo.id}`,
-                  error
-                );
-
-                return [];
-              })
-          )
-        );
-
-        const prs = prResponses
-          .flat()
-          .sort((a, b) => {
-            const dateA = new Date(
-              a.updated_at || a.created_at || 0
-            ).getTime();
-
-            const dateB = new Date(
-              b.updated_at || b.created_at || 0
-            ).getTime();
-
-            return dateB - dateA;
-          });
-
-        setRecentPRs(prs.slice(0, 8));
-      } else {
-        setRecentPRs([]);
-      }
-
-      setLastUpdated(new Date());
-    } catch (error) {
-      console.error('Error fetching ACI dashboard data:', error);
-
-      toast.error('Failed to load dashboard data');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  const refreshData = useCallback(async () => {
-    setRefreshing(true);
-    try {
-      await fetchData();
-    } finally {
-      setRefreshing(false);
-    }
-  }, [fetchData]);
+      return {
+        repositories: responseItems(repositoryResponse),
+        verifications: responseItems(verificationResponse),
+      };
+    },
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
+  const repositories = dashboardQuery.data?.repositories || EMPTY_ARRAY;
+  const verifications = dashboardQuery.data?.verifications || EMPTY_ARRAY;
+  const loading = dashboardQuery.isLoading;
+  const lastUpdated = dashboardQuery.dataUpdatedAt
+    ? new Date(dashboardQuery.dataUpdatedAt)
+    : new Date();
+  const pullRequestsQuery = useQuery({
+    queryKey: ['dashboard-pull-requests', user?.id],
+    enabled: Boolean(user && dashboardQuery.data),
+    queryFn: async () => {
+      const response = await aciApi.getAllPullRequests({ limit: 8 });
+      return responseItems(response);
+    },
+    staleTime: 60_000,
+    refetchInterval: 60_000,
+  });
+  const recentPRs = pullRequestsQuery.data || EMPTY_ARRAY;
+  const refreshing = dashboardQuery.isFetching || pullRequestsQuery.isFetching;
 
   useEffect(() => {
-    let active = true;
-    queueMicrotask(() => {
-      if (active) fetchData();
-    });
-
-    /*
-     * ACI is event-driven, but polling gives the dashboard a useful
-     * development-time refresh while webhook processing is being built out.
-     */
-    const interval = setInterval(() => {
-      refreshData();
-    }, 60000);
-
-    return () => {
-      active = false;
-      clearInterval(interval);
-    };
-  }, [fetchData, refreshData]);
+    if (dashboardQuery.error || pullRequestsQuery.error) {
+      console.error(
+        'Error fetching ACI dashboard data:',
+        dashboardQuery.error || pullRequestsQuery.error
+      );
+      toast.error('Failed to load dashboard data');
+    }
+  }, [dashboardQuery.error, pullRequestsQuery.error]);
 
 
   const handleRefresh = async () => {
-    await refreshData();
+    await Promise.all([
+      dashboardQuery.refetch(),
+      pullRequestsQuery.refetch(),
+    ]);
     toast.success('Dashboard refreshed');
   };
 
@@ -390,6 +332,24 @@ export const Dashboard = () => {
   /* ------------------------------------------------------------------------ */
   /* Loading                                                                  */
   /* ------------------------------------------------------------------------ */
+
+  if (dashboardQuery.isError && !dashboardQuery.data) {
+    return (
+      <section className="card mx-auto max-w-xl p-6 text-center">
+        <p className="font-semibold">Dashboard data could not be loaded.</p>
+        <p className="mt-2 text-sm text-dark-muted">
+          Check your connection and try again.
+        </p>
+        <button
+          className="mt-4 rounded-lg bg-accent-middle px-4 py-2 text-sm font-semibold text-white"
+          onClick={() => dashboardQuery.refetch()}
+          type="button"
+        >
+          Retry
+        </button>
+      </section>
+    );
+  }
 
   if (loading) {
     return (

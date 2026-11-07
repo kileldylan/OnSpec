@@ -1,6 +1,7 @@
 // src/components/PullRequests.jsx
-import React, { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   GitPullRequest,
   GitBranch,
@@ -12,15 +13,17 @@ import {
   Loader2,
   Search,
   Filter,
+  ChevronLeft,
+  ChevronRight,
   Calendar,
   User,
-  Eye,
   Zap,
 } from 'lucide-react';
 import { aciApi } from '../api/aci';
 import StatusBadge from './StatusBadge';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
+import { useAuth } from '../context/AuthContext';
 
 const responseItems = (response) => {
   const payload = response?.data;
@@ -31,83 +34,72 @@ const responseItems = (response) => {
 
 export const PullRequests = () => {
   const navigate = useNavigate();
-  const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
-  const [pullRequests, setPullRequests] = useState([]);
-  const [verifications, setVerifications] = useState({});
-  const [repositories, setRepositories] = useState([]);
   const [selectedRepo, setSelectedRepo] = useState('all');
+  const [page, setPage] = useState(1);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
-  const [lastUpdated, setLastUpdated] = useState(new Date());
+  const { user } = useAuth();
+
+  const query = useQuery({
+    queryKey: ['pull-requests', user?.id, selectedRepo, page],
+    enabled: Boolean(user),
+    queryFn: async () => {
+      const [repoResponse, prResponse] = await Promise.all([
+        aciApi.getRepositories({ limit: 100 }),
+        selectedRepo === 'all'
+          ? aciApi.getAllPullRequests({ page, page_size: 50 })
+          : aciApi.getRepositoryPullRequests(selectedRepo, { page, page_size: 50 }),
+      ]);
+      const repos = responseItems(repoResponse);
+      const repoById = new Map(repos.map((repo) => [String(repo.id), repo]));
+      const prs = responseItems(prResponse).map((pr) => ({
+        ...pr,
+        repo: repoById.get(String(pr.repository))?.full_name || 'Unknown',
+      }));
+      prs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+
+      const verificationResponse = prs.length
+        ? await aciApi.getVerifications({
+          pull_requests: prs.map((pr) => pr.id).join(','),
+          latest_per: 'pull_request',
+        })
+        : { data: [] };
+      const verifications = {};
+      responseItems(verificationResponse).forEach((verification) => {
+        const pullRequestId = verification.pull_request?.id;
+        if (pullRequestId && !verifications[pullRequestId]) {
+          verifications[pullRequestId] = verification;
+        }
+      });
+
+      return {
+        repositories: repos,
+        pullRequests: prs,
+        verifications,
+        totalCount: prResponse.data?.count ?? prs.length,
+        totalPages: prResponse.data?.count
+          ? Math.ceil(prResponse.data.count / 50)
+          : 1,
+      };
+    },
+    staleTime: 60_000,
+  });
+  const repositories = query.data?.repositories || [];
+  const pullRequests = query.data?.pullRequests || [];
+  const verifications = query.data?.verifications || {};
+  const loading = query.isLoading;
+  const refreshing = query.isFetching && !query.isLoading;
+  const lastUpdated = query.dataUpdatedAt ? new Date(query.dataUpdatedAt) : new Date();
 
   useEffect(() => {
-    fetchData();
-  }, [selectedRepo]);
-
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-      
-      // Fetch repositories
-      const repoRes = await aciApi.getRepositories();
-      const repos = responseItems(repoRes);
-      setRepositories(repos);
-
-      // Fetch pull requests
-      let prs = [];
-      if (selectedRepo === 'all') {
-        // Fetch from all repositories
-        for (const repo of repos) {
-          const prRes = await aciApi.getRepositoryPullRequests(repo.id, { limit: 50 });
-          const repoPrs = responseItems(prRes).map(pr => ({
-            ...pr,
-            repo: repo.full_name,
-            // Ensure we keep the repository id for navigation
-            repository: pr.repository ?? repo.id,
-          }));
-          prs = [...prs, ...repoPrs];
-        }
-      } else {
-        const repoId = parseInt(selectedRepo);
-        const prRes = await aciApi.getRepositoryPullRequests(repoId, { limit: 50 });
-        const repo = repos.find(r => r.id === repoId);
-        prs = responseItems(prRes).map(pr => ({
-          ...pr,
-          repo: repo?.full_name || 'Unknown',
-          repository: pr.repository ?? repoId,
-        }));
-      }
-
-      // Sort by creation date (newest first)
-      prs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-      setPullRequests(prs);
-
-      // Fetch verifications for each PR
-      const verMap = {};
-      for (const pr of prs) {
-        const verRes = await aciApi.getVerifications({ pull_request: pr.id });
-        const vers = responseItems(verRes);
-        if (vers.length > 0) {
-          verMap[pr.id] = vers[0];
-        }
-      }
-      setVerifications(verMap);
-
-      setLastUpdated(new Date());
-
-    } catch (error) {
-      console.error('Error fetching PR data:', error);
+    if (query.error) {
+      console.error('Error fetching PR data:', query.error);
       toast.error('Failed to load pull requests');
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
     }
-  };
+  }, [query.error]);
 
   const handleRefresh = async () => {
-    setRefreshing(true);
-    await fetchData();
+    await query.refetch();
     toast.success('Pull requests refreshed');
   };
 
@@ -118,8 +110,8 @@ export const PullRequests = () => {
         // ACI will auto-detect Jira key from PR title
       });
       toast.success(`Verification started for PR #${prNumber}`);
-      setTimeout(fetchData, 2000);
-    } catch (error) {
+      setTimeout(() => query.refetch(), 2000);
+    } catch {
       toast.error('Failed to start verification');
     }
   };
@@ -128,12 +120,6 @@ export const PullRequests = () => {
     const ver = verifications[prId];
     if (!ver) return 'pending';
     return ver.status;
-  };
-
-  const getVerificationSummary = (prId) => {
-    const ver = verifications[prId];
-    if (!ver) return 'Not verified yet';
-    return ver.summary || `${ver.status} - ${ver.confidence ? parseFloat(ver.confidence) * 100 + '% confidence' : ''}`;
   };
 
   const getStatusIcon = (status) => {
@@ -212,7 +198,10 @@ export const PullRequests = () => {
             <Filter className="w-4 h-4 text-dark-muted" />
             <select
               value={selectedRepo}
-              onChange={(e) => setSelectedRepo(e.target.value)}
+              onChange={(e) => {
+                setSelectedRepo(e.target.value);
+                setPage(1);
+              }}
               className="w-full min-w-0 px-3 py-2 bg-dark-bg border border-dark-border rounded-xl focus:outline-none focus:border-accent-middle text-sm"
             >
               <option value="all">All Repositories</option>
@@ -392,9 +381,37 @@ export const PullRequests = () => {
       )}
 
       {/* Footer */}
-      <div className="flex items-center justify-between text-xs text-dark-muted/60 border-t border-dark-border pt-4">
-        <span>Showing {filteredPRs.length} of {pullRequests.length} pull requests</span>
-        <span>Last updated: {formatTime(lastUpdated)}</span>
+      <div className="flex flex-col gap-3 border-t border-dark-border pt-4 text-xs text-dark-muted/60 sm:flex-row sm:items-center sm:justify-between">
+        <span>
+          Showing {filteredPRs.length} of {pullRequests.length} loaded pull requests
+          {query.data?.totalCount > pullRequests.length
+            ? ` (${query.data.totalCount} total)`
+            : ''}
+        </span>
+        <div className="flex items-center justify-between gap-3 sm:justify-end">
+          <span>Last updated: {formatTime(lastUpdated)}</span>
+          <div className="flex items-center gap-2">
+            <button
+              aria-label="Previous pull-request page"
+              className="rounded border border-dark-border p-1.5 disabled:opacity-40"
+              disabled={page <= 1 || loading}
+              onClick={() => setPage((current) => current - 1)}
+              type="button"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <span>{page} / {query.data?.totalPages || 1}</span>
+            <button
+              aria-label="Next pull-request page"
+              className="rounded border border-dark-border p-1.5 disabled:opacity-40"
+              disabled={page >= (query.data?.totalPages || 1) || loading}
+              onClick={() => setPage((current) => current + 1)}
+              type="button"
+            >
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
