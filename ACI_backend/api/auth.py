@@ -272,7 +272,7 @@ def github_oauth_callback(request):
 
     if mode == "login":
         login(request, user)
-        return HttpResponseRedirect(f"{settings.FRONTEND_URL}/")
+        return HttpResponseRedirect(f"{settings.FRONTEND_URL}/console")
     return _github_oauth_redirect("connected", mode=mode)
 
 

@@ -166,7 +166,7 @@ def test_github_login_creates_user_and_authenticates_by_github_id(
 
     user = get_user_model().objects.get(username="github-555123")
     assert response.status_code == 302
-    assert response.url == "https://on-spec.vercel.app/"
+    assert response.url == "https://on-spec.vercel.app/console"
     assert GitHubAccount.objects.get(user=user).github_login == "new-github-user"
     assert client.get(reverse("auth-me")).json()["user"]["id"] == user.id
 

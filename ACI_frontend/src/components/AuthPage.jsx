@@ -47,7 +47,7 @@ export const Login = () => {
     setSubmitting(true);
     try {
       await login(form);
-      navigate(location.state?.from?.pathname || '/', { replace: true });
+      navigate(location.state?.from?.pathname || '/console', { replace: true });
     } catch {
       toast.error('Unable to sign in with those details.');
     } finally {
@@ -61,6 +61,7 @@ export const Login = () => {
 export const Register = () => {
   const { register } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [form, setForm] = useState({ username: '', email: '', password: '', password_confirm: '' });
   const [submitting, setSubmitting] = useState(false);
 
@@ -69,7 +70,7 @@ export const Register = () => {
     setSubmitting(true);
     try {
       await register(form);
-      navigate('/', { replace: true });
+      navigate(location.state?.from?.pathname || '/console', { replace: true });
     } catch (error) {
       const detail = error.response?.data;
       const message = detail?.detail || Object.values(detail || {})[0]?.[0] || 'Unable to create your account.';

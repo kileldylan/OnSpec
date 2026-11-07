@@ -79,8 +79,8 @@ function App() {
               <Route path="/register" element={<Register />} />
               <Route element={<ProtectedRoute />}>
                 <Route element={<Layout />}>
-                  <Route path="console" element={<Navigate to="/pull-requests" replace />} />
-                  <Route path="overview" element={<Dashboard />} />
+                  <Route path="console" element={<Dashboard />} />
+                  <Route path="overview" element={<Navigate to="/console" replace />} />
                   <Route path="verifications" element={<VerificationList />} />
                   <Route path="verifications/:id" element={<VerificationDetail />} />
                   <Route path="evidence" element={<EvidencePage />} />
