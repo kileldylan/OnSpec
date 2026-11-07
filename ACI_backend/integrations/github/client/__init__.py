@@ -254,16 +254,37 @@ class GitHubClient:
             "?per_page=100"
         )
 
-    def create_pull_request_comment(self, owner, repository, pull_request_number, body):
+    def get_issue_comment(self, owner, repository, comment_id):
         return self._request(
-            f"/repos/{owner}/{repository}/issues/{pull_request_number}/comments",
+            f"/repos/{owner}/{repository}/issues/comments/{comment_id}"
+        )
+
+    def create_issue_comment(self, owner, repository, issue_number, body):
+        return self._request(
+            f"/repos/{owner}/{repository}/issues/{issue_number}/comments",
             method="POST",
             payload={"body": body},
         )
 
-    def update_pull_request_comment(self, owner, repository, comment_id, body):
+    def update_issue_comment(self, owner, repository, comment_id, body):
         return self._request(
             f"/repos/{owner}/{repository}/issues/comments/{comment_id}",
             method="PATCH",
             payload={"body": body},
+        )
+
+    def create_pull_request_comment(self, owner, repository, pull_request_number, body):
+        return self.create_issue_comment(
+            owner,
+            repository,
+            pull_request_number,
+            body,
+        )
+
+    def update_pull_request_comment(self, owner, repository, comment_id, body):
+        return self.update_issue_comment(
+            owner,
+            repository,
+            comment_id,
+            body,
         )

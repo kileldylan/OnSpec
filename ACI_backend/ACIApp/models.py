@@ -50,6 +50,78 @@ class GitHubWebhookJob(models.Model):
         return f"{self.event} delivery {self.delivery_id} - {self.status}"
 
 
+class AcceptanceCriteriaGeneration(models.Model):
+    """A versioned AI-generated criteria preview for a GitHub issue."""
+
+    STATUS_CHOICES = [
+        ("draft", "Draft"),
+        ("accepted", "Accepted"),
+        ("rejected", "Rejected"),
+        ("superseded", "Superseded"),
+    ]
+
+    SOURCE_CHOICES = [
+        ("github", "GitHub issue"),
+        ("jira", "Jira issue"),
+    ]
+
+    repository = models.ForeignKey(
+        "Repository",
+        on_delete=models.CASCADE,
+        related_name="criteria_generations",
+    )
+    github_issue_id = models.PositiveBigIntegerField()
+    github_issue_number = models.PositiveIntegerField()
+    jira_issue_key = models.CharField(max_length=100, blank=True)
+    source = models.CharField(
+        max_length=20,
+        choices=SOURCE_CHOICES,
+        default="github",
+    )
+    version = models.PositiveIntegerField()
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="draft",
+    )
+    criteria = models.JSONField(default=list)
+    markdown = models.TextField()
+    issue_title = models.CharField(max_length=500)
+    issue_body = models.TextField(blank=True)
+    triggering_comment_id = models.PositiveBigIntegerField(unique=True)
+    preview_comment_id = models.PositiveBigIntegerField(null=True, blank=True)
+    approval_comment_id = models.PositiveBigIntegerField(
+        unique=True,
+        null=True,
+        blank=True,
+    )
+    requested_by_login = models.CharField(max_length=255)
+    accepted_by_login = models.CharField(max_length=255, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+    accepted_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["repository", "github_issue_id", "version"],
+                name="unique_criteria_generation_issue_version",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["repository", "github_issue_id", "status", "version"],
+            ),
+            models.Index(fields=["repository", "jira_issue_key", "status"]),
+        ]
+
+    def __str__(self):
+        return (
+            f"{self.repository.full_name} issue "
+            f"#{self.github_issue_number} criteria v{self.version}"
+        )
+
+
 class Repository(models.Model):
     """A GitHub repository connected to ACI."""
 

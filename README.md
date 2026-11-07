@@ -137,7 +137,18 @@ The public web landing page points repositories to GitHub App installation and e
 
 ### GitHub App configuration
 
-Configure `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET` in the backend environment. Configure `VITE_GITHUB_APP_SLUG` in the frontend to show the repository-install link. The app needs repository permissions for **Checks (read/write)**, **Contents (read)**, **Pull requests (read)**, and **Issues (read/write)**, and must subscribe to `pull_request`, `check_run`, and `status` events. Installation creation and permission-accepted events synchronize the repositories granted to the App. Installations should grant access only to repositories intended for verification.
+Configure `GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, and `GITHUB_WEBHOOK_SECRET` in the backend environment. Configure `VITE_GITHUB_APP_SLUG` in the frontend to show the repository-install link. The app needs repository permissions for **Checks (read/write)**, **Contents (read)**, **Pull requests (read)**, and **Issues (read/write)**, and must subscribe to `pull_request`, `issue_comment`, `check_run`, and `status` events. Installation creation and permission-accepted events synchronize the repositories granted to the App. Installations should grant access only to repositories intended for verification.
+
+### Generate acceptance criteria
+
+On a GitHub Issue, an issue author or repository collaborator can comment:
+
+- `/requora generate` to generate criteria from the GitHub Issue title and body.
+- `/requora generate from jira` to generate improved criteria from a Jira issue key in the GitHub Issue title/body. This requires `JIRA_BASE_URL` and `JIRA_API_TOKEN`.
+
+Requora posts a preview of 4–8 AI-generated checklist items. Reply `accept` or `save` to approve it. To change the list, reply `/requora accept` and include a replacement checklist with 4–8 `- [ ] ...` items. Reply `/requora reject` to discard the preview, or `/requora generate` to create a new version. Acceptance is stored with GitHub Issue and optional Jira identifiers and version history. The existing PR workflow uses accepted generated criteria first when it links that GitHub Issue or Jira key; otherwise it falls back to criteria parsed from the issue/ticket text.
+
+Set `ACCEPTANCE_CRITERIA_LLM_PROVIDER=openai` and `ACCEPTANCE_CRITERIA_LLM_MODEL` to configure the generator. Provide `ACCEPTANCE_CRITERIA_LLM_API_KEY`, or reuse the existing `OPENAI_API_KEY`. `ACCEPTANCE_CRITERIA_LLM_TIMEOUT` optionally controls the provider request timeout in seconds. Generation requires a configured API key; verification's deterministic mode does not generate criteria.
 
 Configure a private Redis service and set `REDIS_URL` on both the Render web service and worker. Redis provides shared API rate-limit state, GitHub App installation-token caching, and short-lived caching of immutable commit-SHA reads. Without it, local development uses process-local memory, which is not suitable for coordinating production service instances. Auth endpoints have tighter limits; API limits are global, and GitHub webhooks instead rely on HMAC signature validation, delivery-ID deduplication, and a payload size cap to tolerate GitHub event bursts.
 
@@ -149,17 +160,18 @@ The backend accepts PostgreSQL settings either as `DATABASE_URL` or as `DATABASE
 
 ## Current Status
 
-Early-stage implementation. The backend has GitHub App installation-token support, a durable webhook inbox, a persistent worker command for automatic processing, evidence-backed deterministic decisions, and GitHub Check/comment publishing. Hosting still requires a separate always-on worker process running `python ACI_backend/manage.py run_aci_worker`; webhook requests only enqueue work. PRs can link same-repository GitHub Issues via `#number`, or existing manual requirements via external ID or title. Jira linking is optional; repository config files, Linear, bulk reporting, and managed queue infrastructure are not included yet.
+Early-stage implementation. The backend has GitHub App installation-token support, a durable webhook inbox, a persistent worker command for automatic processing, AI-generated acceptance-criteria previews and approval, evidence-backed deterministic decisions, and GitHub Check/comment publishing. Hosting still requires a separate always-on worker process running `python ACI_backend/manage.py run_aci_worker`; webhook requests only enqueue work. PRs can link same-repository GitHub Issues via `#number`, Jira issues by key, or existing manual requirements via external ID or title. Repository config files, Linear, bulk reporting, and managed queue infrastructure are not included yet.
 
 ---
 
 ## Getting Started (Design Partners)
 
-1. Configure the GitHub App credentials and webhook secret in the backend, then set the frontend app slug.
+1. Configure the GitHub App credentials, webhook secret, and acceptance-criteria LLM key in the backend, then set the frontend app slug.
 2. Install the ACI GitHub App on a repository with the permissions listed above.
-3. Ensure the PR references a GitHub Issue (`#123`), a Jira key, or the external ID/title of a manual requirement in ACI.
-4. Open or update the PR; the webhook queues the event and the persistent worker collects evidence and evaluates criteria.
-5. Review the in-progress Check, then the completed decision and single updated comment.
+3. Optionally generate and approve criteria on a GitHub Issue using `/requora generate`; link Jira criteria with `/requora generate from jira`.
+4. Ensure the PR references a GitHub Issue (`#123`), a Jira key, or the external ID/title of a manual requirement in ACI.
+5. Open or update the PR; the webhook queues the event and the persistent worker collects evidence and evaluates criteria.
+6. Review the in-progress Check, then the completed decision and single updated comment.
 
 For configuration, audit history, or pilot discussion: [link to contact / docs].
 

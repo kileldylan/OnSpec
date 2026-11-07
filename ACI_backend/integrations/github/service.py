@@ -15,6 +15,11 @@ from ACI_backend.integrations.github.accounts import (
     link_repository_github_members,
 )
 from ACI_backend.integrations.github.client import GitHubClient
+from ACI_backend.integrations.github.criteria_generation import (
+    accepted_criteria_for_issue,
+    apply_accepted_criteria,
+    process_issue_comment_event,
+)
 from ACI_backend.integrations.jira.client import JiraAPIError, JiraClient
 from ACI_backend.integrations.jira.service import (
     ingest_jira_requirements_for_pull_request,
@@ -96,6 +101,7 @@ def link_pull_request_requirements(*, pull_request, payload, github_client):
         requirement = repository.requirements.filter(
             external_id__in=[str(issue_number), f"#{issue_number}"],
         ).first()
+        issue = None
         if requirement is None:
             issue = github_client.get_issue(
                 repository.owner,
@@ -125,11 +131,21 @@ def link_pull_request_requirements(*, pull_request, payload, github_client):
                     ),
                 },
             )
-            if issue_body:
-                sync_requirement_criteria_from_text(
-                    requirement=requirement,
-                    text=issue_body,
-                )
+        generated = accepted_criteria_for_issue(
+            repository=repository,
+            github_issue_id=issue.get("id") if issue else None,
+            github_issue_number=issue_number,
+        )
+        if generated is not None:
+            apply_accepted_criteria(
+                requirement=requirement,
+                generated=generated,
+            )
+        elif issue is not None and issue_body:
+            sync_requirement_criteria_from_text(
+                requirement=requirement,
+                text=issue_body,
+            )
         linked.append(requirement)
 
     for requirement in {item.id: item for item in linked}.values():
@@ -333,6 +349,8 @@ def process_github_webhook(*, event, payload):
     if event == "pull_request":
         sync_pull_request_installation(payload)
         return process_pull_request_event(payload)
+    if event == "issue_comment":
+        return process_issue_comment_event(payload)
     if event in {"installation", "installation_repositories"}:
         return process_github_installation_event(event, payload)
     if event not in {"check_run", "status"}:

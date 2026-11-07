@@ -3,6 +3,10 @@ import logging
 from ACI_backend.ACIApp.models import Requirement, RequirementPullRequest
 from ACI_backend.integrations.jira.client import JiraAPIError
 from ACI_backend.integrations.jira.utils import extract_jira_issue_keys
+from ACI_backend.integrations.github.criteria_generation import (
+    accepted_criteria_for_issue,
+    apply_accepted_criteria,
+)
 from ACI_backend.integrations.verification.criteria import (
     sync_requirement_criteria_from_text,
 )
@@ -56,10 +60,17 @@ def ingest_jira_requirement(
         requirement=requirement,
         pull_request=pull_request,
     )
-    sync_requirement_criteria_from_text(
-        requirement=requirement,
-        text=fields.get("description") or requirement.description,
+    generated = accepted_criteria_for_issue(
+        repository=repository,
+        jira_issue_key=issue_key,
     )
+    if generated is not None:
+        apply_accepted_criteria(requirement=requirement, generated=generated)
+    else:
+        sync_requirement_criteria_from_text(
+            requirement=requirement,
+            text=fields.get("description") or requirement.description,
+        )
 
     return requirement
 

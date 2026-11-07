@@ -23,6 +23,7 @@ PULL_REQUEST_ACTIONS = {
 INSTALLATION_ACTIONS = {"created", "deleted", "new_permissions_accepted"}
 INSTALLATION_REPOSITORIES_ACTIONS = {"added", "removed"}
 CHECK_RUN_ACTIONS = {"created", "rerequested", "completed"}
+ISSUE_COMMENT_ACTIONS = {"created", "edited"}
 
 
 @csrf_exempt
@@ -124,6 +125,18 @@ def github_webhook(request):
     elif event == "status":
         if not isinstance(payload.get("repository"), dict):
             return JsonResponse({"detail": "Invalid status payload."}, status=400)
+    elif event == "issue_comment":
+        if (
+            not isinstance(payload.get("repository"), dict)
+            or not isinstance(payload.get("issue"), dict)
+            or not isinstance(payload.get("comment"), dict)
+        ):
+            return JsonResponse(
+                {"detail": "Invalid issue comment payload."},
+                status=400,
+            )
+        if payload.get("action") not in ISSUE_COMMENT_ACTIONS:
+            return _ignored(event)
     else:
         return _ignored(event)
 

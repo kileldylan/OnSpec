@@ -76,6 +76,22 @@ GITHUB_CI_EVIDENCE_CONTEXTS = tuple(
 LLM_PROVIDER = env("LLM_PROVIDER", default="deterministic")
 LLM_MODEL = env("LLM_MODEL", default="gpt-4.1-mini")
 OPENAI_API_KEY = env("OPENAI_API_KEY", default="")
+ACCEPTANCE_CRITERIA_LLM_PROVIDER = env(
+    "ACCEPTANCE_CRITERIA_LLM_PROVIDER",
+    default="openai",
+).lower()
+ACCEPTANCE_CRITERIA_LLM_MODEL = env(
+    "ACCEPTANCE_CRITERIA_LLM_MODEL",
+    default=LLM_MODEL,
+)
+ACCEPTANCE_CRITERIA_LLM_API_KEY = env(
+    "ACCEPTANCE_CRITERIA_LLM_API_KEY",
+    default=OPENAI_API_KEY,
+)
+ACCEPTANCE_CRITERIA_LLM_TIMEOUT = env.int(
+    "ACCEPTANCE_CRITERIA_LLM_TIMEOUT",
+    default=30,
+)
 SECRET_KEY = env("SECRET_KEY")
 
 DEBUG = env.bool("DEBUG", default=False)

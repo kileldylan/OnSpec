@@ -160,6 +160,38 @@ def test_github_webhook_queues_edited_pull_request(api_client):
 
 
 @pytest.mark.django_db
+def test_github_webhook_queues_issue_comment_commands(api_client):
+    payload = {
+        "action": "created",
+        "installation": {"id": 123},
+        "repository": {
+            "id": 456,
+            "name": "requora",
+            "full_name": "aci/requora",
+            "default_branch": "main",
+            "owner": {"login": "aci"},
+        },
+        "issue": {"id": 789, "number": 12},
+        "comment": {"id": 987, "body": "/requora generate"},
+    }
+    signature, body = create_github_signature(payload)
+
+    response = api_client.post(
+        reverse("github-webhook"),
+        data=body,
+        content_type="application/json",
+        HTTP_X_GITHUB_EVENT="issue_comment",
+        HTTP_X_HUB_SIGNATURE_256=signature,
+        HTTP_X_GITHUB_DELIVERY="issue-comment-generate",
+    )
+
+    assert response.status_code == 202
+    job = GitHubWebhookJob.objects.get()
+    assert job.event == "issue_comment"
+    assert job.payload["comment"]["body"] == "/requora generate"
+
+
+@pytest.mark.django_db
 @patch("ACI_backend.integrations.github.service.GitHubClient")
 def test_pull_request_links_github_issues_and_manual_requirements(
     mock_github_client,
