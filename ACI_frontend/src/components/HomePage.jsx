@@ -140,7 +140,7 @@ const HomePage = () => {
             <a href="#how-it-works" onClick={closeMenu}>How it works</a>
             <a href="#features" onClick={closeMenu}>Features</a>
             <a href="#integrations" onClick={closeMenu}>Integrations</a>
-            <Link to="/console" onClick={closeMenu}>Console</Link>
+            <Link to="/login" onClick={closeMenu}>Console</Link>
             {githubAppInstallUrl ? (
               <a
                 className="landing-nav-cta"

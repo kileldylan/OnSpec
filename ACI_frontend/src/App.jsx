@@ -8,7 +8,7 @@ import { aciApi } from './api/aci';
 import HomePage from './components/HomePage';
 import ProtectedRoute from './components/ProtectedRoute';
 import { Login, Register } from './components/AuthPage';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider } from './context/AuthContext';
 import { Analytics as VercelAnalytics } from '@vercel/analytics/react';
 
 const Dashboard = lazy(() => import('./components/Dashboard'));
@@ -50,23 +50,6 @@ const queryClient = new QueryClient({
   },
 });
 
-function HomeRoute() {
-  const { user, loading } = useAuth();
-
-  if (loading) {
-    return (
-      <div
-        className="flex min-h-screen items-center justify-center bg-dark-bg text-dark-muted"
-        role="status"
-      >
-        Loading Requora...
-      </div>
-    );
-  }
-
-  return user ? <Navigate to="/console" replace /> : <HomePage />;
-}
-
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
@@ -91,7 +74,7 @@ function App() {
             }
           >
             <Routes>
-              <Route path="/" element={<HomeRoute />} />
+              <Route path="/" element={<HomePage />} />
               <Route path="/login" element={<Login />} />
               <Route path="/register" element={<Register />} />
               <Route element={<ProtectedRoute />}>
