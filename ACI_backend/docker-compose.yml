@@ -1,0 +1,53 @@
+services:
+  db:
+    image: postgres:15
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    environment:
+      - POSTGRES_DB=aci_db
+      - POSTGRES_USER=aci_user
+      - POSTGRES_PASSWORD=aci_password
+
+  redis:
+    image: redis:7-alpine
+
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    working_dir: /app
+    command: >
+      sh -c "python ACI_backend/manage.py migrate &&
+             gunicorn ACI_backend.wsgi:application --bind 0.0.0.0:8000"
+    volumes:
+      - ..:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      - DATABASE_HOST=db
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+
+  worker:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    working_dir: /app
+    command: python ACI_backend/manage.py run_aci_worker
+    volumes:
+      - ..:/app
+    env_file:
+      - .env
+    environment:
+      - DATABASE_HOST=db
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - db
+      - redis
+
+volumes:
+  postgres_data:

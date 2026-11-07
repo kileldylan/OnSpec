@@ -47,7 +47,7 @@ export const Login = () => {
     setSubmitting(true);
     try {
       await login(form);
-      navigate(location.state?.from?.pathname || '/', { replace: true });
+      navigate(location.state?.from?.pathname || '/console', { replace: true });
     } catch {
       toast.error('Unable to sign in with those details.');
     } finally {
@@ -55,12 +55,13 @@ export const Login = () => {
     }
   };
 
-  return <AuthForm title="Welcome back" subtitle="Sign in to review your delivery evidence." submitLabel="Sign in" form={form} setForm={setForm} submit={submit} submitting={submitting} login onGitHubSignIn={signInWithGitHub} githubSubmitting={githubSubmitting} />;
+  return <AuthForm title="Optional ACI console" subtitle="Set up requirements or review audit history. Pull request decisions are posted in GitHub." submitLabel="Sign in" form={form} setForm={setForm} submit={submit} submitting={submitting} login onGitHubSignIn={signInWithGitHub} githubSubmitting={githubSubmitting} />;
 };
 
 export const Register = () => {
   const { register } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [form, setForm] = useState({ username: '', email: '', password: '', password_confirm: '' });
   const [submitting, setSubmitting] = useState(false);
 
@@ -69,7 +70,7 @@ export const Register = () => {
     setSubmitting(true);
     try {
       await register(form);
-      navigate('/', { replace: true });
+      navigate(location.state?.from?.pathname || '/console', { replace: true });
     } catch (error) {
       const detail = error.response?.data;
       const message = detail?.detail || Object.values(detail || {})[0]?.[0] || 'Unable to create your account.';
@@ -79,7 +80,7 @@ export const Register = () => {
     }
   };
 
-  return <AuthForm title="Create your account" subtitle="Start making every release decision auditable." submitLabel="Create account" form={form} setForm={setForm} submit={submit} submitting={submitting} />;
+  return <AuthForm title="Create a console account" subtitle="The optional ACI console is for requirement setup and audit history. GitHub App installation handles repository access." submitLabel="Create account" form={form} setForm={setForm} submit={submit} submitting={submitting} />;
 };
 
 const AuthForm = ({ title, subtitle, submitLabel, form, setForm, submit, submitting, login, onGitHubSignIn, githubSubmitting }) => {
@@ -115,7 +116,7 @@ const AuthForm = ({ title, subtitle, submitLabel, form, setForm, submit, submitt
                 disabled={githubSubmitting}
                 className="flex w-full items-center justify-center gap-2 rounded-lg border border-dark-border px-4 py-3 text-sm font-semibold transition hover:bg-dark-hover disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {githubSubmitting ? 'Connecting to GitHub...' : 'Continue with GitHub'}
+                {githubSubmitting ? 'Connecting to GitHub...' : 'Sign in to console with GitHub'}
               </button>
             </>
           )}

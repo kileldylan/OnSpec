@@ -1,5 +1,7 @@
 import base64
-from unittest.mock import patch
+from datetime import datetime, timedelta, timezone
+from uuid import uuid4
+from unittest.mock import Mock, patch
 
 import pytest
 
@@ -12,8 +14,9 @@ def github_client():
 
 
 def test_get_commit_returns_github_commit(github_client):
+    sha = uuid4().hex + uuid4().hex[:8]
     github_response = {
-        "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "sha": sha,
         "files": [
             {
                 "filename": "users/views.py",
@@ -35,15 +38,29 @@ def test_get_commit_returns_github_commit(github_client):
         result = github_client.get_commit(
             "kilel",
             "aci-demo",
-            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            sha,
         )
 
     assert result == github_response
 
     mock_request.assert_called_once_with(
-        "/repos/kilel/aci-demo/commits/"
-        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+        f"/repos/kilel/aci-demo/commits/{sha}"
     )
+
+
+def test_immutable_github_read_is_cached_across_clients():
+    sha = uuid4().hex + uuid4().hex[:8]
+    first_client = GitHubClient(token="test-token")
+    second_client = GitHubClient(token="test-token")
+    result = {"sha": sha, "files": []}
+
+    with patch.object(first_client, "_request", return_value=result) as first_request:
+        assert first_client.get_commit("kilel", "aci-demo", sha) == result
+    with patch.object(second_client, "_request") as second_request:
+        assert second_client.get_commit("kilel", "aci-demo", sha) == result
+
+    first_request.assert_called_once()
+    second_request.assert_not_called()
 
 
 def test_get_repository_tree_uses_recursive_ref(github_client):
@@ -82,3 +99,28 @@ def test_get_repository_file_decodes_base64_content(github_client):
     mock_request.assert_called_once_with(
         "/repos/kilel/aci-demo/contents/accounts/password_reset.py?ref=abc123"
     )
+
+
+def test_installation_token_is_cached_between_clients():
+    installation_id = uuid4().int % 1_000_000_000
+    with patch(
+        "ACI_backend.integrations.github.client.requests.Session.post"
+    ) as mock_post:
+        token_response = Mock()
+        token_response.json.return_value = {
+            "token": f"installation-token-{installation_id}",
+            "expires_at": (
+                datetime.now(timezone.utc) + timedelta(minutes=30)
+            ).isoformat(),
+        }
+        token_response.raise_for_status.return_value = None
+        mock_post.return_value = token_response
+
+        first_client = GitHubClient(installation_id=installation_id)
+        second_client = GitHubClient(installation_id=installation_id)
+        with patch.object(first_client, "_app_jwt", return_value="app-jwt"):
+            first_token = first_client._get_installation_token()
+        second_token = second_client._get_installation_token()
+
+    assert first_token == second_token
+    mock_post.assert_called_once()

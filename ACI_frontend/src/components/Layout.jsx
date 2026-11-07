@@ -1,19 +1,19 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { 
-  LayoutDashboard, 
   GitPullRequest, 
   CheckCircle, 
+  LayoutDashboard,
+  BarChart3,
+  FileSearch,
   Sun,
   Moon,
   Sparkles,
   Shield,
-  FileCode,
   FileText,
   LogOut,
   GitBranch,
   Menu,
   X,
-  TrendingUp,
 } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
@@ -21,14 +21,15 @@ import { useAuth } from '../context/AuthContext';
 import { clsx } from 'clsx';
 import toast from 'react-hot-toast';
 import { aciApi } from '../api/aci';
+import { githubAppInstallUrl } from '../config/githubApp';
 
 const navItems = [
-  { icon: LayoutDashboard, label: 'Dashboard', path: '/' },
-  { icon: CheckCircle, label: 'Verifications', path: '/verifications' },
+  { icon: LayoutDashboard, label: 'Overview', path: '/console' },
   { icon: GitPullRequest, label: 'Pull Requests', path: '/pull-requests' },
-  { icon: FileCode, label: 'Evidence', path: '/evidence' },
+  { icon: CheckCircle, label: 'Audit history', path: '/verifications' },
+  { icon: FileSearch, label: 'Evidence', path: '/evidence' },
+  { icon: BarChart3, label: 'Analytics & reports', path: '/analytics' },
   { icon: FileText, label: 'Requirements', path: '/requirements' },
-  { icon: TrendingUp, label: 'Analytics', path: '/analytics' },
 ];
 
 const Navigation = ({ mobile = false, onNavigate }) => {
@@ -38,14 +39,14 @@ const Navigation = ({ mobile = false, onNavigate }) => {
   const { user, logout } = useAuth();
   const [connectingGitHub, setConnectingGitHub] = useState(false);
 
-  const connectGitHub = async () => {
+  const connectGitHubAccount = async () => {
     try {
       setConnectingGitHub(true);
       const response = await aciApi.getGitHubAuthorizationUrl();
       window.location.assign(response.data.authorization_url);
     } catch (error) {
       toast.error(
-        error.response?.data?.detail || 'Unable to connect your GitHub account.'
+        error.response?.data?.detail || 'Unable to link your GitHub account.'
       );
       setConnectingGitHub(false);
     }
@@ -91,9 +92,7 @@ const Navigation = ({ mobile = false, onNavigate }) => {
             className={clsx(
               'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl transition-all duration-200',
               'hover:bg-dark-hover text-dark-muted hover:text-dark-text',
-              (item.path === '/'
-                ? location.pathname === '/'
-                : location.pathname.startsWith(item.path)) &&
+              location.pathname.startsWith(item.path) &&
                 'bg-accent-start/10 text-accent-middle'
             )}
           >
@@ -105,19 +104,42 @@ const Navigation = ({ mobile = false, onNavigate }) => {
 
       {/* Footer */}
       <div className="border-t border-dark-border pt-4 space-y-3">
+        {githubAppInstallUrl ? (
+          <a
+            href={githubAppInstallUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="w-full min-w-0 flex items-center gap-3 px-3 py-2 rounded-xl transition-colors text-dark-muted hover:bg-dark-hover hover:text-dark-text"
+          >
+            <GitBranch className="w-5 h-5" />
+            <span className="min-w-0 truncate text-left text-sm font-medium">
+              Install GitHub App
+            </span>
+          </a>
+        ) : (
+          <span
+            aria-disabled="true"
+            className="w-full min-w-0 flex items-center gap-3 px-3 py-2 rounded-xl text-dark-muted opacity-60"
+          >
+            <GitBranch className="w-5 h-5" />
+            <span className="min-w-0 truncate text-left text-sm font-medium">
+              Set GitHub App slug
+            </span>
+          </span>
+        )}
         <button
           type="button"
-          onClick={connectGitHub}
+          onClick={connectGitHubAccount}
           disabled={connectingGitHub}
           className="w-full min-w-0 flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-dark-hover transition-colors text-dark-muted hover:text-dark-text disabled:opacity-60"
         >
           <GitBranch className="w-5 h-5" />
           <span className="min-w-0 truncate text-left text-sm font-medium">
             {connectingGitHub
-              ? 'Connecting GitHub...'
+              ? 'Linking GitHub account...'
               : user?.github_login
-                ? `GitHub @${user.github_login}`
-                : 'Connect GitHub'}
+                ? `Console account: @${user.github_login}`
+                : 'Link GitHub for console access'}
           </span>
         </button>
         <button

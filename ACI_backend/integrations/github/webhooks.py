@@ -1,33 +1,63 @@
-import json
 import hashlib
 import hmac
+import json
 import logging
 
 from django.conf import settings
+from django.core.exceptions import RequestDataTooBig
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 
-from ACI_backend.integrations.github.client import GitHubAPIError
-from ACI_backend.integrations.github.service import (
-    process_github_evidence_event,
-    process_pull_request_event,
-)
+from ACI_backend.integrations.github.worker import enqueue_github_webhook
+
 
 logger = logging.getLogger(__name__)
 
-PULL_REQUEST_ACTIONS = {"opened", "reopened", "synchronize", "closed"}
+PULL_REQUEST_ACTIONS = {
+    "opened",
+    "reopened",
+    "synchronize",
+    "closed",
+    "edited",
+}
+INSTALLATION_ACTIONS = {"created", "deleted", "new_permissions_accepted"}
+INSTALLATION_REPOSITORIES_ACTIONS = {"added", "removed"}
 CHECK_RUN_ACTIONS = {"created", "rerequested", "completed"}
 
 
 @csrf_exempt
 def github_webhook(request):
-    """Django view that receives GitHub webhooks and dispatches processing.
+    """Verify and durably queue supported GitHub webhook events."""
 
-    Verifies the `X-Hub-Signature-256` header using
-    `settings.GITHUB_WEBHOOK_SECRET` and returns 401 on failure.
-    """
     if request.method != "POST":
         return JsonResponse({"detail": "Method not allowed."}, status=405)
+
+    content_length = request.META.get("CONTENT_LENGTH")
+    if content_length:
+        try:
+            if int(content_length) > settings.GITHUB_WEBHOOK_MAX_BYTES:
+                return JsonResponse(
+                    {"detail": "Webhook payload is too large."},
+                    status=413,
+                )
+        except ValueError:
+            return JsonResponse(
+                {"detail": "Invalid content length."},
+                status=400,
+            )
+
+    try:
+        body = request.body
+    except RequestDataTooBig:
+        return JsonResponse(
+            {"detail": "Webhook payload is too large."},
+            status=413,
+        )
+    if len(body) > settings.GITHUB_WEBHOOK_MAX_BYTES:
+        return JsonResponse(
+            {"detail": "Webhook payload is too large."},
+            status=413,
+        )
 
     signature = request.headers.get("X-Hub-Signature-256")
     if not signature or not signature.startswith("sha256="):
@@ -40,14 +70,20 @@ def github_webhook(request):
             status=503,
         )
     expected = "sha256=" + hmac.new(
-        webhook_secret.encode(), request.body, hashlib.sha256
+        webhook_secret.encode(), body, hashlib.sha256
     ).hexdigest()
-
     if not hmac.compare_digest(signature, expected):
         return JsonResponse({"detail": "Invalid webhook signature."}, status=401)
 
+    delivery_id = request.headers.get("X-GitHub-Delivery", "")
+    if not delivery_id or len(delivery_id) > 100:
+        return JsonResponse(
+            {"detail": "Invalid GitHub delivery ID."},
+            status=400,
+        )
+
     try:
-        payload = json.loads(request.body)
+        payload = json.loads(body)
     except json.JSONDecodeError:
         return JsonResponse({"detail": "Invalid JSON payload."}, status=400)
 
@@ -55,86 +91,67 @@ def github_webhook(request):
     if not isinstance(payload, dict) or not event:
         return JsonResponse({"detail": "Invalid webhook payload."}, status=400)
 
-    try:
-        if event == "pull_request":
-            if not isinstance(payload.get("repository"), dict):
-                return JsonResponse({"detail": "Invalid pull request payload."}, status=400)
-            if not isinstance(payload.get("pull_request"), dict):
-                return JsonResponse({"detail": "Invalid pull request payload."}, status=400)
-            if payload.get("action") not in PULL_REQUEST_ACTIONS:
-                return JsonResponse(
-                    {"message": "Webhook action ignored.", "event": event},
-                    status=202,
-                )
-            pull_request = process_pull_request_event(payload)
-            requirements = list(
-                pull_request.requirement_links.select_related(
-                    "requirement",
-                ).values(
-                    "requirement_id",
-                    "requirement__external_id",
-                    "requirement__title",
-                )
-            )
-            verifications = list(
-                pull_request.verifications.values(
-                    "id",
-                    "requirement_id",
-                    "status",
-                )
-            )
-            runs = list(
-                pull_request.verifications.values(
-                    "runs__id",
-                    "runs__status",
-                )
-                .exclude(runs__id__isnull=True)
-            )
+    if event == "pull_request":
+        if not isinstance(payload.get("repository"), dict) or not isinstance(
+            payload.get("pull_request"), dict
+        ):
+            return JsonResponse({"detail": "Invalid pull request payload."}, status=400)
+        if payload.get("action") not in PULL_REQUEST_ACTIONS:
+            return _ignored(event)
+    elif event == "installation":
+        if not isinstance(payload.get("installation"), dict):
+            return JsonResponse({"detail": "Invalid installation payload."}, status=400)
+        if payload.get("action") not in INSTALLATION_ACTIONS:
+            return _ignored(event)
+    elif event == "installation_repositories":
+        if not isinstance(payload.get("installation"), dict):
+            return JsonResponse({"detail": "Invalid installation payload."}, status=400)
+        if payload.get("action") not in INSTALLATION_REPOSITORIES_ACTIONS:
+            return _ignored(event)
+    elif event == "check_run":
+        check_run = payload.get("check_run")
+        if not isinstance(payload.get("repository"), dict) or not isinstance(
+            check_run, dict
+        ):
+            return JsonResponse({"detail": "Invalid check run payload."}, status=400)
+        if check_run.get("name") == "ACI / Delivery Verification":
             return JsonResponse(
-                {
-                    "message": "Webhook received.",
-                    "event": event,
-                    "pull_request": {
-                        "id": pull_request.id,
-                        "number": pull_request.number,
-                        "repository": pull_request.repository.full_name,
-                    },
-                    "requirements": requirements,
-                    "verifications": verifications,
-                    "runs": runs,
-                    "analysis": (
-                        "queued; run process_reverification_runs to complete"
-                        if any(item["runs__status"] == "queued" for item in runs)
-                        else "not queued; link a Jira requirement and ensure the PR has changed files"
-                    ),
-                },
-                status=200,
-            )
-        elif event == "check_run":
-            if not isinstance(payload.get("repository"), dict):
-                return JsonResponse({"detail": "Invalid check run payload."}, status=400)
-            if payload.get("action") not in CHECK_RUN_ACTIONS:
-                return JsonResponse(
-                    {"message": "Webhook action ignored.", "event": event},
-                    status=202,
-                )
-            process_github_evidence_event(event, payload)
-        elif event == "status":
-            if not isinstance(payload.get("repository"), dict):
-                return JsonResponse({"detail": "Invalid status payload."}, status=400)
-            process_github_evidence_event(event, payload)
-        else:
-            return JsonResponse(
-                {"message": "Webhook event ignored.", "event": event},
+                {"message": "ACI check run ignored.", "event": event},
                 status=202,
             )
-    except GitHubAPIError:
-        logger.exception("GitHub API request failed while processing webhook.")
-        return JsonResponse(
-            {"detail": "GitHub API request failed."},
-            status=502,
-        )
-    except (KeyError, TypeError, ValueError):
-        return JsonResponse({"detail": "Invalid webhook payload."}, status=400)
+        if payload.get("action") not in CHECK_RUN_ACTIONS:
+            return _ignored(event)
+    elif event == "status":
+        if not isinstance(payload.get("repository"), dict):
+            return JsonResponse({"detail": "Invalid status payload."}, status=400)
+    else:
+        return _ignored(event)
 
-    return JsonResponse({"message": "Webhook received.", "event": event}, status=200)
+    try:
+        job = enqueue_github_webhook(
+            event=event,
+            payload=payload,
+            delivery_id=delivery_id,
+        )
+    except Exception:
+        logger.exception("Unable to enqueue GitHub %s webhook.", event)
+        return JsonResponse(
+            {"detail": "Webhook could not be queued; GitHub may retry delivery."},
+            status=503,
+        )
+
+    return JsonResponse(
+        {
+            "message": "Webhook queued for background processing.",
+            "event": event,
+            "job_id": job.id,
+        },
+        status=202,
+    )
+
+
+def _ignored(event):
+    return JsonResponse(
+        {"message": "Webhook event ignored.", "event": event},
+        status=202,
+    )

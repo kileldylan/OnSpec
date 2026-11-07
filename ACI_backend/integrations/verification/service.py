@@ -217,7 +217,8 @@ def collect_repository_code_evidence(
         return []
 
     github_client = github_client or GitHubClient(
-        token=settings.GITHUB_ACCESS_TOKEN,
+        token=settings.GITHUB_ACCESS_TOKEN or None,
+        installation_id=pull_request.repository.github_installation_id,
     )
     tree = github_client.get_repository_tree(
         pull_request.repository.owner,
@@ -711,7 +712,14 @@ def ingest_changed_file_evidence(
     return evidence_records
 
 
-def ingest_github_evidence(*, pull_request, commit, event, payload):
+def ingest_github_evidence(
+    *,
+    pull_request,
+    commit,
+    event,
+    payload,
+    changed_only=False,
+):
     """Persist deterministic test or CI evidence from a GitHub event."""
 
     if event == "check_run":
@@ -770,6 +778,19 @@ def ingest_github_evidence(*, pull_request, commit, event, payload):
         for evidence in prior_evidence:
             _invalidate_evidence(evidence, triggering_commit=commit)
 
+        evidence = Evidence.objects.filter(
+            requirement_id=requirement_id,
+            pull_request=pull_request,
+            commit=commit,
+            evidence_type=evidence_type,
+            metadata__external_key=external_key,
+        ).first()
+        changed = (
+            evidence is None
+            or evidence.status != evidence_status
+            or evidence.description != description
+            or evidence.metadata != metadata
+        )
         evidence, _ = Evidence.objects.update_or_create(
             requirement_id=requirement_id,
             pull_request=pull_request,
@@ -782,7 +803,8 @@ def ingest_github_evidence(*, pull_request, commit, event, payload):
                 "metadata": metadata,
             },
         )
-        evidence_records.append(evidence)
+        if changed or not changed_only:
+            evidence_records.append(evidence)
 
     return evidence_records
 
@@ -1118,6 +1140,7 @@ def process_next_reverification_run(
     evaluator=None,
     test_runner=None,
     source_evidence_collector=None,
+    run_id=None,
 ):
     """Process the oldest queued run.
 
@@ -1126,9 +1149,10 @@ def process_next_reverification_run(
     criterion results.
     """
 
-    queued_run = VerificationRun.objects.filter(
-        status="queued",
-    ).order_by("requested_at").first()
+    queued_runs = VerificationRun.objects.filter(status="queued")
+    if run_id is not None:
+        queued_runs = queued_runs.filter(pk=run_id)
+    queued_run = queued_runs.order_by("requested_at").first()
     if queued_run is None:
         return None
 
@@ -1241,13 +1265,12 @@ def process_next_reverification_run(
         ) from error
 
     criteria_conclusion = _criteria_outcome_for_verification(verification)
-    if criteria_conclusion is not None:
+    if criteria_conclusion is not None and conclusion["status"] != "failed":
         conclusion = {
             **conclusion,
             "status": criteria_conclusion["status"],
             "summary": criteria_conclusion["summary"],
             "confidence": criteria_conclusion["confidence"],
-            "evidence": list(current_evidence),
         }
 
     # Enhance the top-level summary with criterion results for more detail
@@ -1262,4 +1285,19 @@ def process_next_reverification_run(
         **conclusion,
     )
     create_delivery_decision(verification=verification)
+    if (
+        verification.pull_request
+        and verification.pull_request.repository.github_installation_id
+    ):
+        from ACI_backend.integrations.github.outputs import (
+            publish_delivery_result,
+        )
+
+        publish_delivery_result(verification.pull_request)
+    elif verification.pull_request:
+        logger.warning(
+            "GitHub delivery output was not published for %s because no "
+            "GitHub App installation is linked.",
+            verification.pull_request,
+        )
     return verification
