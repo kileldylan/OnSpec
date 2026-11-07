@@ -4,7 +4,6 @@ import {
   CheckCircle, 
   LayoutDashboard,
   BarChart3,
-  FileSearch,
   Sun,
   Moon,
   Sparkles,
@@ -27,7 +26,6 @@ const navItems = [
   { icon: LayoutDashboard, label: 'Overview', path: '/console' },
   { icon: GitPullRequest, label: 'Pull Requests', path: '/pull-requests' },
   { icon: CheckCircle, label: 'Audit history', path: '/verifications' },
-  { icon: FileSearch, label: 'Evidence', path: '/evidence' },
   { icon: BarChart3, label: 'Analytics & reports', path: '/analytics' },
   { icon: FileText, label: 'Requirements', path: '/requirements' },
 ];

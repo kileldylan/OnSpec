@@ -124,7 +124,7 @@ def test_delivery_report_wraps_long_criteria(pull_request):
 
 
 @pytest.mark.django_db
-def test_delivery_report_lists_all_evidence_on_separate_lines(pull_request):
+def test_delivery_report_limits_github_output_to_primary_references(pull_request):
     criterion_result = CriterionVerification.objects.get(
         verification__pull_request=pull_request,
     )
@@ -150,11 +150,12 @@ def test_delivery_report_lists_all_evidence_on_separate_lines(pull_request):
 
     _, summary = build_delivery_report(pull_request)
 
-    assert "[tests/test\\_reset\\.py:10-23]" in summary
-    for index in range(2, 7):
+    for index in (4, 5, 6):
         assert f"[src/module\\_{index}\\.py:" in summary
+    for index in (2, 3):
+        assert f"[src/module\\_{index}\\.py:" not in summary
     assert "<br>" in summary
-    assert "more" not in summary
+    assert "+3 related line references" in summary
 
 
 @pytest.mark.django_db
@@ -178,7 +179,7 @@ def test_publish_delivery_result_creates_check_and_persists_single_comment(
                             "Delivery decision: **VERIFIED**\n\n"
                             "| Criterion | Status | Evidence |\n"
                             "|---|---|---|\n"
-                            "| A reset email is sent\\. | satisfied | "
+                            "| A reset email is sent\\. | satisfied | **Primary:** "
                                 "[tests/test\\_reset\\.py:10-23](https://github.com/"
                                 "aci/delivery/blob/main/tests/test_reset.py"
                                 "#L10-L23) |"
@@ -201,7 +202,7 @@ def test_publish_delivery_result_creates_check_and_persists_single_comment(
                             "Delivery decision: **VERIFIED**\n\n"
                             "| Criterion | Status | Evidence |\n"
                             "|---|---|---|\n"
-                            "| A reset email is sent\\. | satisfied | "
+                            "| A reset email is sent\\. | satisfied | **Primary:** "
                                 "[tests/test\\_reset\\.py:10-23](https://github.com/"
                                 "aci/delivery/blob/main/tests/test_reset.py"
                                 "#L10-L23) |"

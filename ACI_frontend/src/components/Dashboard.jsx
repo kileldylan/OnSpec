@@ -1,7 +1,7 @@
 
 // src/components/Dashboard.jsx
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -11,7 +11,6 @@ import {
   CheckCircle,
   Clock,
   Database,
-  FileCheck2,
   FileCode,
   GitBranch,
   GitPullRequest,
@@ -20,7 +19,6 @@ import {
   Shield,
   Sparkles,
   Target,
-  TrendingUp,
   XCircle,
   Zap,
 } from 'lucide-react';
@@ -172,37 +170,26 @@ export const Dashboard = () => {
   const [repositories, setRepositories] = useState([]);
   const [verifications, setVerifications] = useState([]);
   const [recentPRs, setRecentPRs] = useState([]);
-  const [recentEvidence, setRecentEvidence] = useState([]);
 
   /* ------------------------------------------------------------------------ */
   /* Data fetching                                                            */
   /* ------------------------------------------------------------------------ */
 
-  const fetchData = useCallback(async (isRefresh = false) => {
+  const fetchData = useCallback(async () => {
     try {
-      if (isRefresh) {
-        setRefreshing(true);
-      } else {
-        setLoading(true);
-      }
-
       const [
         repositoriesResponse,
         verificationsResponse,
-        evidenceResponse,
       ] = await Promise.all([
         aciApi.getRepositories(),
         aciApi.getVerifications({ limit: 50 }),
-        aciApi.getEvidence({ limit: 10 }),
       ]);
 
       const repos = responseItems(repositoriesResponse);
       const verificationItems = responseItems(verificationsResponse);
-      const evidenceItems = responseItems(evidenceResponse);
 
       setRepositories(repos);
       setVerifications(verificationItems);
-      setRecentEvidence(evidenceItems);
 
       /*
        * Fetch PRs from repositories independently.
@@ -253,28 +240,41 @@ export const Dashboard = () => {
       toast.error('Failed to load dashboard data');
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, []);
 
+  const refreshData = useCallback(async () => {
+    setRefreshing(true);
+    try {
+      await fetchData();
+    } finally {
+      setRefreshing(false);
+    }
+  }, [fetchData]);
 
   useEffect(() => {
-    fetchData();
+    let active = true;
+    queueMicrotask(() => {
+      if (active) fetchData();
+    });
 
     /*
      * ACI is event-driven, but polling gives the dashboard a useful
      * development-time refresh while webhook processing is being built out.
      */
     const interval = setInterval(() => {
-      fetchData(true);
+      refreshData();
     }, 60000);
 
-    return () => clearInterval(interval);
-  }, [fetchData]);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [fetchData, refreshData]);
 
 
   const handleRefresh = async () => {
-    await fetchData(true);
+    await refreshData();
     toast.success('Dashboard refreshed');
   };
 
@@ -769,25 +769,6 @@ export const Dashboard = () => {
                 {stats.requirements}
               </span>
             </button>
-
-
-            <button
-              onClick={() => navigate('/evidence')}
-              className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-dark-hover transition-colors text-left"
-            >
-              <div className="flex items-center gap-3">
-                <FileCheck2 className="w-4 h-4 text-accent-middle" />
-
-                <span className="text-sm">
-                  Evidence
-                </span>
-              </div>
-
-              <span className="font-semibold">
-                {recentEvidence.length}
-              </span>
-            </button>
-
           </div>
         </div>
 
@@ -1268,130 +1249,6 @@ export const Dashboard = () => {
 
         </div>
 
-
-        {/* Evidence */}
-
-        <div className="card overflow-hidden">
-
-          <div className="p-5 border-b border-dark-border">
-
-            <div className="flex items-center justify-between">
-
-              <div className="flex items-center gap-3">
-
-                <FileCheck2 className="w-5 h-5 text-accent-middle" />
-
-                <div>
-                  <h2 className="font-semibold">
-                    Recent Evidence
-                  </h2>
-
-                  <p className="text-xs text-dark-muted mt-1">
-                    The proof behind ACI's decisions.
-                  </p>
-                </div>
-
-              </div>
-
-              <button
-                onClick={() => navigate('/evidence')}
-                className="text-xs text-accent-middle hover:text-accent-end"
-              >
-                View all →
-              </button>
-
-            </div>
-
-          </div>
-
-
-          {recentEvidence.length === 0 ? (
-
-            <div className="p-8 text-center">
-
-              <Sparkles className="w-7 h-7 mx-auto text-dark-muted/50" />
-
-              <p className="text-sm text-dark-muted mt-3">
-                No evidence collected yet.
-              </p>
-
-            </div>
-
-          ) : (
-
-            <div className="divide-y divide-dark-border">
-
-              {recentEvidence.slice(0, 6).map(
-                (evidence, index) => (
-
-                  <div
-                    key={
-                      evidence.id ||
-                      `${evidence.commit_sha}-${index}`
-                    }
-                    className="p-4 hover:bg-dark-hover transition-colors"
-                  >
-
-                    <div className="flex items-start gap-3">
-
-                      <div className="p-2 rounded-lg bg-accent-start/10 shrink-0">
-                        <FileCheck2 className="w-4 h-4 text-accent-middle" />
-                      </div>
-
-                      <div className="min-w-0 flex-1">
-
-                        <p className="text-sm font-medium truncate">
-                          {evidence.description ||
-                            'Evidence item'}
-                        </p>
-
-                        <div className="flex flex-wrap items-center gap-2 mt-2">
-
-                          <StatusBadge
-                            status={
-                              evidence.status ||
-                              'valid'
-                            }
-                            size="sm"
-                          />
-
-                          {evidence.evidence_type && (
-                            <span className="text-xs uppercase text-dark-muted">
-                              {evidence.evidence_type}
-                            </span>
-                          )}
-
-                          {evidence.commit_sha && (
-                            <span className="text-xs font-mono text-dark-muted">
-                              {evidence.commit_sha.substring(
-                                0,
-                                7
-                              )}
-                            </span>
-                          )}
-
-                          {evidence.changed_file && (
-                            <span className="text-xs text-dark-muted truncate max-w-[180px]">
-                              {evidence.changed_file}
-                            </span>
-                          )}
-
-                        </div>
-
-                      </div>
-
-                    </div>
-
-                  </div>
-
-                )
-              )}
-
-            </div>
-
-          )}
-
-        </div>
 
       </div>
 

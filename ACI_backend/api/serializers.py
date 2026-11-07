@@ -17,6 +17,7 @@ from ACI_backend.ACIApp.models import (
     VerificationRun,
 )
 from ACI_backend.integrations.verification.criteria import (
+    rank_criterion_evidence,
     sync_requirement_criteria_from_text,
 )
 
@@ -191,6 +192,8 @@ class CriterionVerificationSerializer(serializers.ModelSerializer):
     criterion_text = serializers.CharField(source="criterion.text", read_only=True)
     criterion_category = serializers.CharField(source="criterion.category", read_only=True)
     evidence = serializers.SerializerMethodField()
+    evidence_count = serializers.SerializerMethodField()
+    related_evidence_count = serializers.SerializerMethodField()
 
     class Meta:
         model = CriterionVerification
@@ -205,18 +208,42 @@ class CriterionVerificationSerializer(serializers.ModelSerializer):
             "metadata",
             "evaluated_at",
             "evidence",
+            "evidence_count",
+            "related_evidence_count",
         ]
         read_only_fields = fields
 
+    @staticmethod
+    def _ranked_evidence(obj):
+        if not hasattr(obj, "_ranked_evidence_cache"):
+            evidence = [
+                link.evidence
+                for link in obj.evidence_links.all()
+            ]
+            obj._ranked_evidence_cache = rank_criterion_evidence(
+                criterion=obj.criterion,
+                evidence=evidence,
+            )
+        return obj._ranked_evidence_cache
+
     def get_evidence(self, obj):
-        evidence_links = obj.evidence_links.select_related(
-            "evidence__changed_file",
-            "evidence__commit",
-        ).order_by("id")
+        if not self.context.get("include_criterion_evidence", False):
+            return []
+        evidence = self._ranked_evidence(obj)[:1]
         return [
-            EvidenceSerializer(link.evidence).data
-            for link in evidence_links
+            EvidenceSerializer(item).data
+            for item in evidence
         ]
+
+    def get_evidence_count(self, obj):
+        if not self.context.get("include_criterion_evidence", False):
+            return int((obj.metadata or {}).get("evidence_count", 0))
+        return len(self._ranked_evidence(obj))
+
+    def get_related_evidence_count(self, obj):
+        if not self.context.get("include_criterion_evidence", False):
+            return 0
+        return max(0, len(self._ranked_evidence(obj)) - 1)
 
 
 class VerificationSerializer(serializers.ModelSerializer):
@@ -262,18 +289,26 @@ class VerificationSerializer(serializers.ModelSerializer):
     def get_evidence(self, verification):
         evidence = Evidence.objects.filter(
             verification_links__verification=verification,
-        ).prefetch_related("invalidations__triggering_changed_file")
+        ).select_related(
+            "changed_file",
+            "commit",
+        ).prefetch_related(
+            "invalidations__triggering_changed_file",
+        ).order_by("id")[:3]
         return EvidenceSerializer(evidence, many=True).data
 
     def get_criteria_evaluations(self, verification):
-        raw_criteria = (
-            verification.requirement.criteria.filter(is_active=True)
-            .exclude(text__startswith="{")
-            .exclude(text__contains="'type':")
-            .exclude(text__contains="'content':")
-            .exclude(text__contains="localId")
-            .order_by("order", "id")
-        )
+        raw_criteria = [
+            criterion
+            for criterion in verification.requirement.criteria.all()
+            if (
+                criterion.is_active
+                and not criterion.text.startswith("{")
+                and "'type':" not in criterion.text
+                and "'content':" not in criterion.text
+                and "localId" not in criterion.text
+            )
+        ]
 
         seen = set()
         criteria = []
@@ -288,14 +323,19 @@ class VerificationSerializer(serializers.ModelSerializer):
 
         result_by_criterion = {
             result.criterion_id: result
-            for result in verification.criterion_results.select_related("criterion")
+            for result in verification.criterion_results.all()
         }
 
         serialized = []
         for criterion in criteria:
             result = result_by_criterion.get(criterion.id)
             if result is not None:
-                serialized.append(CriterionVerificationSerializer(result).data)
+                serialized.append(
+                    CriterionVerificationSerializer(
+                        result,
+                        context=self.context,
+                    ).data
+                )
                 continue
 
             serialized.append({

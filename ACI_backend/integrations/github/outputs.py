@@ -15,10 +15,14 @@ from ACI_backend.integrations.github.client import (
     GitHubAPIError,
     GitHubClient,
 )
+from ACI_backend.integrations.verification.criteria import (
+    rank_criterion_evidence,
+)
 
 
 CHECK_NAME = "ACI / Delivery Verification"
 COMMENT_MARKER = "<!-- aci-delivery-verification -->"
+GITHUB_EVIDENCE_REFERENCE_LIMIT = 3
 logger = logging.getLogger(__name__)
 
 
@@ -147,14 +151,37 @@ def build_delivery_report(pull_request):
                     else result.status if result else "pending"
                 )
                 references = []
+                evidence_items = []
                 if result:
-                    references = [
-                        _evidence_reference(item.evidence)
+                    evidence_items = [
+                        item.evidence
                         for item in result.evidence_links.select_related(
-                            "evidence",
+                            "evidence__changed_file",
                         ).all()
                     ]
-                evidence_text = "<br>".join(references) or "No supporting evidence"
+                    evidence_items = rank_criterion_evidence(
+                        criterion=criterion,
+                        evidence=evidence_items,
+                    )
+                    references = [
+                        _evidence_reference(item)
+                        for item in evidence_items[:GITHUB_EVIDENCE_REFERENCE_LIMIT]
+                    ]
+                evidence_text = (
+                    f"**Primary:** {references[0]}"
+                    if references
+                    else "No supporting evidence"
+                )
+                if len(references) > 1:
+                    evidence_text += "<br>Related: " + "<br>".join(references[1:])
+                remaining_count = max(
+                    0,
+                    len(evidence_items) - len(references),
+                )
+                if remaining_count:
+                    evidence_text += (
+                        f"<br>+{remaining_count} related line references"
+                    )
                 rows.append(
                     f"| {_criterion_markdown(criterion.text)} | "
                     f"{criterion_status} | {evidence_text} |"

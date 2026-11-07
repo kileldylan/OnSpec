@@ -392,7 +392,25 @@ def test_verification_detail_exposes_ordered_criteria_with_evidence():
         evidence_type="code",
         status="valid",
         description="Health route implementation",
-        metadata={"filename": "health.py"},
+        metadata={
+            "filename": "health.py",
+            "snippet": "def health_endpoint():\n    return status_200",
+            "line_start": 10,
+            "line_end": 11,
+        },
+    )
+    related_evidence = Evidence.objects.create(
+        requirement=requirement,
+        pull_request=pull_request,
+        evidence_type="code",
+        status="valid",
+        description="Related logging helper",
+        metadata={
+            "filename": "logging.py",
+            "snippet": "logger.info('request received')",
+            "line_start": 4,
+            "line_end": 4,
+        },
     )
     VerificationEvidence.objects.create(
         verification=verification,
@@ -418,6 +436,10 @@ def test_verification_detail_exposes_ordered_criteria_with_evidence():
         criterion_verification=first_result,
         evidence=evidence,
     )
+    CriterionVerificationEvidence.objects.create(
+        criterion_verification=first_result,
+        evidence=related_evidence,
+    )
 
     client = APIClient()
     client.force_authenticate(user=user)
@@ -431,7 +453,24 @@ def test_verification_detail_exposes_ordered_criteria_with_evidence():
     ]
     assert criteria[0]["status"] == "satisfied"
     assert criteria[0]["evidence"][0]["description"] == "Health route implementation"
+    assert criteria[0]["evidence_count"] == 2
+    assert criteria[0]["related_evidence_count"] == 1
     assert criteria[1]["status"] == "missing"
+
+    evidence_response = client.get(
+        reverse(
+            "verification-criterion-evidence",
+            kwargs={
+                "pk": verification.pk,
+                "criterion_pk": criterion_1.pk,
+            },
+        )
+    )
+    assert evidence_response.status_code == 200
+    assert evidence_response.json()["evidence_count"] == 2
+    assert [
+        item["description"] for item in evidence_response.json()["evidence"]
+    ] == ["Health route implementation", "Related logging helper"]
 
 
 @pytest.mark.django_db

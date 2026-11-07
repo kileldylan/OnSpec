@@ -1,12 +1,14 @@
 import logging
 
 from django.conf import settings
+from django.db.models import Prefetch
 from rest_framework import status, viewsets
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
 from ACI_backend.ACIApp.models import (
     DeliveryDecision,
+    CriterionVerificationEvidence,
     Evidence,
     PullRequest,
     Repository,
@@ -27,6 +29,9 @@ from ACI_backend.api.serializers import (
     VerificationSerializer,
 )
 from ACI_backend.api.permissions import visible_repositories
+from ACI_backend.integrations.verification.criteria import (
+    rank_criterion_evidence,
+)
 from ACI_backend.integrations.jira.client import JiraAPIError, JiraClient
 from ACI_backend.integrations.jira.service import ingest_jira_requirement
 from ACI_backend.integrations.verification.llm import create_openai_evaluator
@@ -239,6 +244,17 @@ class VerificationViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = VerificationSerializer
 
     def get_queryset(self):
+        prefetches = ["requirement__criteria", "criterion_results__criterion"]
+        if self.action == "retrieve":
+            prefetches.append(
+                Prefetch(
+                    "criterion_results__evidence_links",
+                    queryset=CriterionVerificationEvidence.objects.select_related(
+                        "evidence__changed_file",
+                        "evidence__commit",
+                    ).order_by("id"),
+                )
+            )
         queryset = visible_repositories(
             Verification.objects.select_related(
             "requirement",
@@ -246,6 +262,7 @@ class VerificationViewSet(viewsets.ReadOnlyModelViewSet):
             ).prefetch_related(
             "evidence_links__evidence__invalidations__triggering_changed_file",
             "decisions",
+            *prefetches,
             ).order_by("-created_at"),
             self.request.user,
             membership_path="requirement__repository__members",
@@ -263,6 +280,56 @@ class VerificationViewSet(viewsets.ReadOnlyModelViewSet):
         if status:
             queryset = queryset.filter(status=status)
         return queryset
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context["include_criterion_evidence"] = self.action == "retrieve"
+        return context
+
+    @action(
+        detail=True,
+        methods=["get"],
+        url_path=r"criteria/(?P<criterion_pk>[^/.]+)/evidence",
+        url_name="criterion-evidence",
+    )
+    def criterion_evidence(self, request, pk=None, criterion_pk=None):
+        verification = self.get_object()
+        criterion = verification.requirement.criteria.filter(
+            pk=criterion_pk,
+            is_active=True,
+        ).first()
+        if criterion is None:
+            return Response(
+                {"detail": "Criterion not found."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        result = verification.criterion_results.filter(
+            criterion=criterion,
+        ).order_by("-evaluated_at", "-id").first()
+        evidence = []
+        if result is not None:
+            evidence = [
+                link.evidence
+                for link in result.evidence_links.select_related(
+                    "evidence__changed_file",
+                    "evidence__commit",
+                ).order_by("id")
+            ]
+            evidence = rank_criterion_evidence(
+                criterion=criterion,
+                evidence=evidence,
+            )
+
+        return Response({
+            "criterion": {
+                "id": criterion.pk,
+                "text": criterion.text,
+                "category": criterion.category,
+            },
+            "evidence_count": len(evidence),
+            "evidence": EvidenceSerializer(evidence, many=True).data,
+        })
 
     @action(detail=False, methods=["post"], url_path="process-queued")
     def process_queued(self, request):

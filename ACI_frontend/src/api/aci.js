@@ -93,6 +93,9 @@ export const aciApi = {
   getVerification: (id) => 
     api.get(`/verifications/${id}/`),
 
+  getCriterionEvidence: (verificationId, criterionId) =>
+    api.get(`/verifications/${verificationId}/criteria/${criterionId}/evidence/`),
+
   processQueuedVerifications: (data = {}) =>
     postWithCsrf('/verifications/process-queued/', data),
   

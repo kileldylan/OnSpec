@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { useParams } from 'react-router-dom';
-import { CheckCircle2, Circle, FileText, Sparkles } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { CheckCircle2, Circle, FileSearch, FileText, Sparkles } from 'lucide-react';
 import { aciApi } from '../api/aci';
 import StatusBadge from './StatusBadge';
 
@@ -23,24 +23,46 @@ const formatEvidenceLabel = (evidence) => {
 
 export const VerificationDetail = () => {
   const { id } = useParams();
-  const [verification, setVerification] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  async function fetchVerificationDetail() {
-    try {
-      setLoading(true);
-      const verRes = await aciApi.getVerification(id);
-      setVerification(verRes.data);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoading(false);
-    }
-  }
+  const navigate = useNavigate();
+  const [requestState, setRequestState] = useState({
+    id: null,
+    verification: null,
+    loading: true,
+    error: null,
+  });
+  const isCurrentRequest = requestState.id === id;
+  const verification = isCurrentRequest ? requestState.verification : null;
+  const loading = !isCurrentRequest || requestState.loading;
+  const error = isCurrentRequest ? requestState.error : null;
 
   useEffect(() => {
-    fetchVerificationDetail();
+    let active = true;
+    aciApi.getVerification(id)
+      .then((response) => {
+        if (active) {
+          setRequestState({
+            id,
+            verification: response.data,
+            loading: false,
+            error: null,
+          });
+        }
+      })
+      .catch((requestError) => {
+        console.error('Unable to load verification:', requestError);
+        if (active) {
+          setRequestState({
+            id,
+            verification: null,
+            loading: false,
+            error: requestError.message,
+          });
+        }
+      });
+
+    return () => {
+      active = false;
+    };
   }, [id]);
 
   if (loading) {
@@ -132,6 +154,8 @@ export const VerificationDetail = () => {
             {criteria.map((criterion, index) => {
               const status = (criterion.status || 'missing').toLowerCase();
               const evidenceItems = Array.isArray(criterion.evidence) ? criterion.evidence : [];
+              const evidenceCount = criterion.evidence_count ?? evidenceItems.length;
+              const primaryEvidence = evidenceItems[0];
               const isComplete = status === 'satisfied';
 
               return (
@@ -163,50 +187,58 @@ export const VerificationDetail = () => {
                       </div>
                     </div>
 
-                    {evidenceItems.length > 0 && (
+                    {evidenceCount > 0 && (
                       <div className="w-full rounded-lg border border-dark-border/60 bg-dark-bg/60 p-3 xl:w-[42%]">
-                        <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-dark-muted mb-2">
+                        <div className="mb-2 flex items-center gap-2 text-xs uppercase tracking-wide text-dark-muted">
                           <FileText className="w-3.5 h-3.5" />
-                          Evidence
+                          Primary evidence
                         </div>
-                        <ul className="space-y-2 text-sm">
-                          {evidenceItems.map((evidence) => (
-                            <li key={evidence.id} className="min-w-0 text-dark-text">
-                              <div className="break-all">
-                                {evidence.metadata?.source_url ? (
-                                  <a
-                                    href={evidence.metadata.source_url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="text-accent-middle hover:underline"
-                                  >
-                                    {formatEvidenceLabel(evidence)}
-                                    {evidence.metadata.line_start && (
-                                      <span className="text-dark-muted">
-                                        {' '}(L{evidence.metadata.line_start}
-                                        {evidence.metadata.line_end &&
-                                          evidence.metadata.line_end !== evidence.metadata.line_start &&
-                                          `-L${evidence.metadata.line_end}`}
-                                        )
-                                      </span>
-                                    )}
-                                  </a>
-                                ) : (
-                                  formatEvidenceLabel(evidence)
-                                )}
-                              </div>
-                              {evidence.metadata?.snippet ? (
-                                <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-dark-bg p-2 text-xs font-mono text-dark-muted">
-                                  {evidence.metadata.snippet}
-                                </pre>
-                              ) : evidence.metadata?.evidence_role === 'documentation' ? (
-                                <p className="mt-1 text-xs text-dark-muted">
-                                  Documentation change; this is not implementation proof.
-                                </p>
-                              ) : null}
-                            </li>
-                          ))}
-                        </ul>
+                        {primaryEvidence ? (
+                          <>
+                            <div className="break-all text-sm text-dark-text">
+                              {primaryEvidence.metadata?.source_url ? (
+                                <a
+                                  href={primaryEvidence.metadata.source_url}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="text-accent-middle hover:underline"
+                                >
+                                  {formatEvidenceLabel(primaryEvidence)}
+                                  {primaryEvidence.metadata.line_start && (
+                                    <span className="text-dark-muted">
+                                      {' '}(L{primaryEvidence.metadata.line_start}
+                                      {primaryEvidence.metadata.line_end &&
+                                        primaryEvidence.metadata.line_end !== primaryEvidence.metadata.line_start &&
+                                        `-L${primaryEvidence.metadata.line_end}`}
+                                      )
+                                    </span>
+                                  )}
+                                </a>
+                              ) : (
+                                formatEvidenceLabel(primaryEvidence)
+                              )}
+                            </div>
+                            {primaryEvidence.metadata?.snippet && (
+                              <pre className="mt-2 max-h-28 overflow-auto whitespace-pre-wrap break-words rounded bg-dark-bg p-2 text-xs font-mono text-dark-muted">
+                                {primaryEvidence.metadata.snippet}
+                              </pre>
+                            )}
+                          </>
+                        ) : (
+                          <p className="text-sm text-dark-muted">
+                            {evidenceCount} supporting evidence {evidenceCount === 1 ? 'item' : 'items'} recorded.
+                          </p>
+                        )}
+                        <button
+                          className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-accent-middle hover:text-accent-end"
+                          onClick={() => navigate(
+                            `/verifications/${id}/criteria/${criterion.criterion}/evidence`
+                          )}
+                          type="button"
+                        >
+                          <FileSearch className="h-4 w-4" />
+                          View all {evidenceCount} evidence {evidenceCount === 1 ? 'item' : 'items'}
+                        </button>
                       </div>
                     )}
                   </div>

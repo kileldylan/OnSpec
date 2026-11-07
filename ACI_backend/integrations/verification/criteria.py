@@ -473,6 +473,53 @@ def _analyze_patch_relevance(criterion_text: str, patch: str) -> dict:
     }
 
 
+def rank_criterion_evidence(*, criterion, evidence):
+    """Put the clearest implementation proof before related supporting evidence."""
+    category_type_order = {
+        "behavior": {"code": 3, "test": 2, "ci": 1, "runtime": 0},
+        "implementation": {"code": 3, "test": 2, "ci": 1, "runtime": 0},
+        "test": {"test": 3, "code": 2, "ci": 1, "runtime": 0},
+        "integration": {"code": 3, "test": 2, "ci": 1, "runtime": 0},
+        "security": {"code": 3, "test": 2, "ci": 1, "runtime": 0},
+        "configuration": {"code": 3, "ci": 2, "test": 1, "runtime": 0},
+    }
+    type_order = category_type_order.get(
+        criterion.category,
+        category_type_order["behavior"],
+    )
+
+    def priority(item):
+        metadata = item.metadata if isinstance(item.metadata, dict) else {}
+        snippet = metadata.get("snippet")
+        if not snippet and item.changed_file_id:
+            snippet = item.changed_file.patch
+        relevance = _analyze_patch_relevance(criterion.text, snippet or "")
+        status_order = {"valid": 2, "stale": 1, "invalid": 0}.get(item.status, 0)
+        evidence_type = effective_evidence_type(item)
+        if evidence_type is None and item.evidence_type == "code":
+            evidence_type = "code"
+        line_start = metadata.get("line_start")
+        line_end = metadata.get("line_end")
+        line_count = (
+            line_end - line_start + 1
+            if isinstance(line_start, int)
+            and isinstance(line_end, int)
+            and line_end >= line_start
+            else 10_000
+        )
+        return (
+            status_order,
+            type_order.get(evidence_type, -1),
+            len(relevance["keywords_found"]),
+            int(bool(item.changed_file_id)),
+            int(bool(metadata.get("source_url"))),
+            -line_count,
+            item.pk or 0,
+        )
+
+    return sorted(evidence, key=priority, reverse=True)
+
+
 def _build_criterion_summary(criterion, valid_evidence, invalid_evidence):
     """Generate a precise, intelligent summary instead of generic text."""
     criterion_text = criterion.text
