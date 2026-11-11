@@ -9,5 +9,5 @@ from django.urls import reverse
 def test_health_check_is_available_without_authentication(client, url_name):
     response = client.get(reverse(url_name))
 
-    assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    assert response.status_code == 204
+    assert not response.content
