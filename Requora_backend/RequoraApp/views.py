@@ -3,4 +3,4 @@ from django.views.decorators.http import require_safe
 
 @require_safe
 def health_check(request):
-    return HttpResponse(status=204)
+    return HttpResponse(status=200)
