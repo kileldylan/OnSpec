@@ -13,7 +13,7 @@ The public home page explains and links to the GitHub App. Developers install th
 3. Configure `VITE_API_URL` when the backend URL differs from the deployed default; local development uses the Vite proxy.
 4. Start the frontend with `npm run dev`.
 
-The optional console is available at `/pull-requests` after sign-in. Audit history and requirements are available in its navigation; analytics and detailed evidence views are secondary routes.
+The optional console is available after sign-in. Pull request context is surfaced alongside verification records in audit history; requirements, analytics, and detailed evidence views are available as secondary routes.
 
 ## Validation
 

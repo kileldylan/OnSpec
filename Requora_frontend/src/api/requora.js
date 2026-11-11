@@ -62,23 +62,14 @@ export const requoraApi = {
   // ============ REPOSITORIES ============
   getRepositories: (params = {}) => 
     api.get('/repositories/', { params }),
-  getAllPullRequests: (params = {}) =>
-    api.get('/repositories/pull-requests/', { params }),
   getAllRequirements: (params = {}) =>
     api.get('/repositories/requirements/', { params }),
   
   getRepository: (id) => 
     api.get(`/repositories/${id}/`),
   
-  getRepositoryPullRequests: (repoId, params = {}) => 
-    api.get(`/repositories/${repoId}/pull-requests/`, { params }),
-  
   getRepositoryRequirements: (repoId, params = {}) => 
     api.get(`/repositories/${repoId}/requirements/`, { params }),
-
-  // New: Pull Request Detail
-  getPullRequestDetail: (repoId, prId) => 
-    api.get(`/repositories/${repoId}/pull-requests/${prId}/`),
 
   startVerification: (repoId, data) => 
     postWithCsrf(`/repositories/${repoId}/start-verification/`, data),

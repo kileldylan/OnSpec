@@ -15,8 +15,6 @@ const VerificationList = lazy(() => import('./components/VerificationList'));
 const VerificationDetail = lazy(() => import('./components/VerificationDetail'));
 const CriterionEvidenceDetail = lazy(() => import('./components/CriterionEvidenceDetail'));
 const Analytics = lazy(() => import('./components/Analytics'));
-const PullRequests = lazy(() => import('./components/PullRequests'));
-const PullRequestDetail = lazy(() => import('./components/PullRequestDetail'));
 const Requirements = lazy(() => import('./components/Requirements'));
 
 const queryClient = new QueryClient({
@@ -67,8 +65,6 @@ function App() {
                     element={<CriterionEvidenceDetail />}
                   />
                   <Route path="analytics" element={<Analytics />} />
-                  <Route path="pull-requests" element={<PullRequests />} />
-                  <Route path="pull-requests/:id" element={<PullRequestDetail />} />
                   <Route path="requirements" element={<Requirements />} />
                 </Route>
               </Route>

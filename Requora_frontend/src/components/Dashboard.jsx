@@ -188,35 +188,21 @@ export const Dashboard = () => {
   const lastUpdated = dashboardQuery.dataUpdatedAt
     ? new Date(dashboardQuery.dataUpdatedAt)
     : new Date();
-  const pullRequestsQuery = useQuery({
-    queryKey: ['dashboard-pull-requests', user?.id],
-    enabled: Boolean(user && dashboardQuery.data),
-    queryFn: async () => {
-      const response = await requoraApi.getAllPullRequests({ limit: 8 });
-      return responseItems(response);
-    },
-    staleTime: 60_000,
-    refetchInterval: 60_000,
-  });
-  const recentPRs = pullRequestsQuery.data || EMPTY_ARRAY;
-  const refreshing = dashboardQuery.isFetching || pullRequestsQuery.isFetching;
+  const refreshing = dashboardQuery.isFetching;
 
   useEffect(() => {
-    if (dashboardQuery.error || pullRequestsQuery.error) {
+    if (dashboardQuery.error) {
       console.error(
         'Error fetching Requora dashboard data:',
-        dashboardQuery.error || pullRequestsQuery.error
+        dashboardQuery.error
       );
       toast.error('Failed to load dashboard data');
     }
-  }, [dashboardQuery.error, pullRequestsQuery.error]);
+  }, [dashboardQuery.error]);
 
 
   const handleRefresh = async () => {
-    await Promise.all([
-      dashboardQuery.refetch(),
-      pullRequestsQuery.refetch(),
-    ]);
+    await dashboardQuery.refetch();
     toast.success('Dashboard refreshed');
   };
 
@@ -266,17 +252,6 @@ export const Dashboard = () => {
         .filter(Boolean)
     ).size;
 
-    const pullRequests = new Set(
-      verifications
-        .map((verification) => {
-          return (
-            verification.pull_request?.id ||
-            verification.pull_request_id
-          );
-        })
-        .filter(Boolean)
-    ).size;
-
     return {
       total,
       verified,
@@ -284,7 +259,6 @@ export const Dashboard = () => {
       unverified,
       pending,
       requirements,
-      pullRequests,
       passRate,
       repositories: repositories.length,
     };
@@ -696,24 +670,6 @@ export const Dashboard = () => {
 
 
             <button
-              onClick={() => navigate('/pull-requests')}
-              className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-dark-hover transition-colors text-left"
-            >
-              <div className="flex items-center gap-3">
-                <GitPullRequest className="w-4 h-4 text-accent-middle" />
-
-                <span className="text-sm">
-                  Pull Requests
-                </span>
-              </div>
-
-              <span className="font-semibold">
-                {stats.pullRequests}
-              </span>
-            </button>
-
-
-            <button
               onClick={() => navigate('/requirements')}
               className="w-full flex items-center justify-between p-3 rounded-xl hover:bg-dark-hover transition-colors text-left"
             >
@@ -1089,126 +1045,6 @@ export const Dashboard = () => {
           </div>
 
         )}
-
-      </div>
-
-
-      {/* ------------------------------------------------------------------ */}
-      {/* Pull requests + evidence                                            */}
-      {/* ------------------------------------------------------------------ */}
-
-      <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-
-        {/* Pull requests */}
-
-        <div className="card overflow-hidden">
-
-          <div className="p-5 border-b border-dark-border">
-
-            <div className="flex items-center justify-between">
-
-              <div className="flex items-center gap-3">
-
-                <GitPullRequest className="w-5 h-5 text-accent-middle" />
-
-                <div>
-                  <h2 className="font-semibold">
-                    Recent Pull Requests
-                  </h2>
-
-                  <p className="text-xs text-dark-muted mt-1">
-                    Code changes entering the verification pipeline.
-                  </p>
-                </div>
-
-              </div>
-
-              <button
-                onClick={() => navigate('/pull-requests')}
-                className="text-xs text-accent-middle hover:text-accent-end"
-              >
-                View all →
-              </button>
-
-            </div>
-
-          </div>
-
-
-          {recentPRs.length === 0 ? (
-
-            <div className="p-8 text-center text-sm text-dark-muted">
-              No pull requests found.
-            </div>
-
-          ) : (
-
-            <div className="divide-y divide-dark-border">
-
-              {recentPRs.slice(0, 6).map((pr) => (
-
-                <button
-                  key={pr.id}
-                  onClick={() =>
-                    navigate(
-                      `/pull-requests/${pr.id}`
-                    )
-                  }
-                  className="w-full text-left p-4 hover:bg-dark-hover transition-colors"
-                >
-
-                  <div className="flex items-start gap-3">
-
-                    <div className="p-2 rounded-lg bg-accent-start/10 shrink-0">
-                      <GitBranch className="w-4 h-4 text-accent-middle" />
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-
-                      <p className="text-sm font-medium truncate">
-                        #{pr.number}{' '}
-                        {pr.title ||
-                          'Untitled pull request'}
-                      </p>
-
-                      <p className="text-xs text-dark-muted mt-1">
-                        {pr.author || 'Unknown author'}
-                      </p>
-
-                      <div className="flex items-center gap-2 mt-2">
-
-                        <StatusBadge
-                          status={
-                            pr.state === 'open'
-                              ? 'pending'
-                              : pr.state || 'verified'
-                          }
-                          size="sm"
-                        />
-
-                        <span className="text-xs text-dark-muted">
-                          {formatDate(
-                            pr.updated_at ||
-                              pr.created_at
-                          )}
-                        </span>
-
-                      </div>
-
-                    </div>
-
-                  </div>
-
-                </button>
-
-              ))}
-
-            </div>
-
-          )}
-
-        </div>
-
 
       </div>
 

@@ -564,7 +564,7 @@ const Analytics = () => {
                         <td className="px-5 py-3 text-dark-muted">{repository?.full_name || '—'}</td>
                         <td className="px-5 py-3">
                           {verification.pull_request?.number
-                            ? <Link className="text-accent-middle hover:underline" to={`/pull-requests/${verification.pull_request.id}`}>#{verification.pull_request.number}</Link>
+                            ? `#${verification.pull_request.number}`
                             : '—'}
                         </td>
                         <td className="px-5 py-3">

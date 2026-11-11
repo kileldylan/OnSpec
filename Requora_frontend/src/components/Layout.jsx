@@ -1,6 +1,5 @@
 import { Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { 
-  GitPullRequest, 
+import {
   CheckCircle, 
   LayoutDashboard,
   BarChart3,
@@ -24,7 +23,6 @@ import { githubAppInstallUrl } from '../config/githubApp';
 
 const navItems = [
   { icon: LayoutDashboard, label: 'Overview', path: '/console' },
-  { icon: GitPullRequest, label: 'Pull Requests', path: '/pull-requests' },
   { icon: CheckCircle, label: 'Audit history', path: '/verifications' },
   { icon: BarChart3, label: 'Analytics & reports', path: '/analytics' },
   { icon: FileText, label: 'Requirements', path: '/requirements' },
