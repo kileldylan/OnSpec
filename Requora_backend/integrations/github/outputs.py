@@ -1,9 +1,11 @@
 import hashlib
+import html
 import logging
 import re
 import textwrap
 from urllib.parse import unquote, urlparse
 
+from django.conf import settings
 from django.utils import timezone
 
 from Requora_backend.RequoraApp.models import (
@@ -22,7 +24,8 @@ from Requora_backend.integrations.verification.criteria import (
 
 CHECK_NAME = "Requora / Delivery Verification"
 COMMENT_MARKER = "<!-- Requora-delivery-verification -->"
-GITHUB_EVIDENCE_REFERENCE_LIMIT = 3
+GITHUB_EVIDENCE_SNAPSHOT_LINES = 5
+GITHUB_EVIDENCE_SNAPSHOT_MAX_CHARS = 500
 logger = logging.getLogger(__name__)
 
 
@@ -104,6 +107,29 @@ def _evidence_reference(evidence):
     return _safe_markdown_text(description) if description else "evidence recorded"
 
 
+def _evidence_snapshot(evidence):
+    metadata = evidence.metadata if isinstance(evidence.metadata, dict) else {}
+    snippet = metadata.get("snippet")
+    if not isinstance(snippet, str) or not snippet.strip():
+        changed_file = getattr(evidence, "changed_file", None)
+        snippet = changed_file.patch if changed_file else ""
+    if not isinstance(snippet, str) or not snippet.strip():
+        return ""
+
+    lines = snippet.strip().splitlines()
+    snapshot = []
+    remaining = GITHUB_EVIDENCE_SNAPSHOT_MAX_CHARS
+    for line in lines[:GITHUB_EVIDENCE_SNAPSHOT_LINES]:
+        if remaining <= 0:
+            break
+        line = line[:remaining]
+        snapshot.append(f"<code>{html.escape(line).replace('|', '&#124;')}</code>")
+        remaining -= len(line)
+    if len(lines) > len(snapshot) or remaining == 0:
+        snapshot.append("<code>...</code>")
+    return "<br>".join(snapshot)
+
+
 def build_delivery_report(pull_request):
     """Render the current, evidence-linked requirement decisions for GitHub."""
 
@@ -164,23 +190,28 @@ def build_delivery_report(pull_request):
                         evidence=evidence_items,
                     )
                     references = [
-                        _evidence_reference(item)
-                        for item in evidence_items[:GITHUB_EVIDENCE_REFERENCE_LIMIT]
-                    ]
+                        _evidence_reference(evidence_items[0])
+                    ] if evidence_items else []
                 evidence_text = (
                     f"**Primary:** {references[0]}"
                     if references
                     else "No supporting evidence"
                 )
-                if len(references) > 1:
-                    evidence_text += "<br>Related: " + "<br>".join(references[1:])
-                remaining_count = max(
-                    0,
-                    len(evidence_items) - len(references),
-                )
-                if remaining_count:
+                if evidence_items:
+                    snapshot = _evidence_snapshot(evidence_items[0])
+                    if snapshot:
+                        evidence_text += f"<br>**Snapshot:**<br>{snapshot}"
+                    evidence_count = len(evidence_items)
+                    evidence_label = (
+                        "evidence item" if evidence_count == 1 else "evidence items"
+                    )
+                    evidence_url = (
+                        f"{settings.FRONTEND_URL.rstrip('/')}/verifications/"
+                        f"{verification.pk}/criteria/{criterion.pk}/evidence"
+                    ).replace("(", "%28").replace(")", "%29")
                     evidence_text += (
-                        f"<br>+{remaining_count} related line references"
+                        f"<br>[View all {evidence_count} {evidence_label}]"
+                        f"({evidence_url})"
                     )
                 rows.append(
                     f"| {_criterion_markdown(criterion.text)} | "

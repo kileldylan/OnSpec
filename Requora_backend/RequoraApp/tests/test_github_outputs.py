@@ -87,6 +87,7 @@ def pull_request():
                 "https://github.com/Requora/delivery/blob/main/"
                 "tests/test_reset.py#L10-L23"
             ),
+            "snippet": "def send_reset_email():\n    return True",
         },
     )
     CriterionVerificationEvidence.objects.create(
@@ -97,7 +98,11 @@ def pull_request():
 
 
 @pytest.mark.django_db
-def test_delivery_report_is_evidence_first(pull_request):
+def test_delivery_report_includes_primary_snapshot_and_all_evidence_link(
+    pull_request,
+    settings,
+):
+    settings.FRONTEND_URL = "https://requora.example/"
     status, summary = build_delivery_report(pull_request)
 
     assert status == "verified"
@@ -105,6 +110,17 @@ def test_delivery_report_is_evidence_first(pull_request):
     assert (
         "[tests/test\\_reset\\.py:10-23]("
         "https://github.com/Requora/delivery/blob/main/tests/test_reset.py#L10-L23)"
+    ) in summary
+    assert (
+        "<code>def send_reset_email():</code><br>"
+        "<code>    return True</code>"
+    ) in summary
+    assert (
+        "[View all 1 evidence item]"
+        "(https://requora.example/verifications/"
+        f"{pull_request.verifications.get().id}/criteria/"
+        f"{pull_request.requirement_links.get().requirement.criteria.get().id}"
+        "/evidence)"
     ) in summary
 
 
@@ -124,7 +140,11 @@ def test_delivery_report_wraps_long_criteria(pull_request):
 
 
 @pytest.mark.django_db
-def test_delivery_report_limits_github_output_to_primary_references(pull_request):
+def test_delivery_report_links_other_evidence_instead_of_listing_each_reference(
+    pull_request,
+    settings,
+):
+    settings.FRONTEND_URL = "https://requora.example"
     criterion_result = CriterionVerification.objects.get(
         verification__pull_request=pull_request,
     )
@@ -150,18 +170,17 @@ def test_delivery_report_limits_github_output_to_primary_references(pull_request
 
     _, summary = build_delivery_report(pull_request)
 
-    for index in (4, 5, 6):
-        assert f"[src/module\\_{index}\\.py:" in summary
-    for index in (2, 3):
+    assert "[src/module\\_6\\.py:60-62]" in summary
+    for index in (2, 3, 4, 5):
         assert f"[src/module\\_{index}\\.py:" not in summary
-    assert "<br>" in summary
-    assert "+3 related line references" in summary
+    assert "[View all 6 evidence items](" in summary
 
 
 @pytest.mark.django_db
 def test_publish_delivery_result_creates_check_and_persists_single_comment(
     pull_request,
 ):
+    _, expected_summary = build_delivery_report(pull_request)
     github_client = Mock()
     github_client.list_check_runs.side_effect = [
         {"check_runs": []},
@@ -175,15 +194,7 @@ def test_publish_delivery_result_creates_check_and_persists_single_comment(
                     "conclusion": "success",
                     "output": {
                         "title": "Delivery verification: verified",
-                        "summary": (
-                            "Delivery decision: **VERIFIED**\n\n"
-                            "| Criterion | Status | Evidence |\n"
-                            "|---|---|---|\n"
-                            "| A reset email is sent\\. | satisfied | **Primary:** "
-                                "[tests/test\\_reset\\.py:10-23](https://github.com/"
-                                "Requora/delivery/blob/main/tests/test_reset.py"
-                                "#L10-L23) |"
-                        ),
+                        "summary": expected_summary,
                     },
                 },
             ],
@@ -198,15 +209,7 @@ def test_publish_delivery_result_creates_check_and_persists_single_comment(
                     "conclusion": "success",
                     "output": {
                         "title": "Delivery verification: verified",
-                        "summary": (
-                            "Delivery decision: **VERIFIED**\n\n"
-                            "| Criterion | Status | Evidence |\n"
-                            "|---|---|---|\n"
-                            "| A reset email is sent\\. | satisfied | **Primary:** "
-                                "[tests/test\\_reset\\.py:10-23](https://github.com/"
-                                "Requora/delivery/blob/main/tests/test_reset.py"
-                                "#L10-L23) |"
-                        ),
+                        "summary": expected_summary,
                     },
                 },
             ],
