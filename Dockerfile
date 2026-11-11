@@ -16,11 +16,11 @@ RUN apt-get update && apt-get install -y \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install them
-COPY ACI_backend/requirements.txt /app/ACI_backend/requirements.txt
-RUN pip install --no-cache-dir -r /app/ACI_backend/requirements.txt
+COPY Requora_backend/requirements.txt /app/Requora_backend/requirements.txt
+RUN pip install --no-cache-dir -r /app/Requora_backend/requirements.txt
 
 # Copy the rest of the application
-COPY ACI_backend/ /app/ACI_backend/
+COPY Requora_backend/ /app/Requora_backend/
 
 # Copy the start script and make it executable
 COPY start.sh /app/start.sh

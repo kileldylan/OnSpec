@@ -3,12 +3,12 @@ set -euo pipefail
 
 cd "$(dirname "${BASH_SOURCE[0]}")"
 
-python ACI_backend/manage.py migrate --noinput
+python Requora_backend/manage.py migrate --noinput
 
-python ACI_backend/manage.py run_aci_worker &
+python Requora_backend/manage.py run_requora_worker &
 worker_pid=$!
 
-gunicorn ACI_backend.wsgi:application --bind "0.0.0.0:${PORT:-10000}" &
+gunicorn Requora_backend.wsgi:application --bind "0.0.0.0:${PORT:-10000}" &
 web_pid=$!
 
 cleanup() {

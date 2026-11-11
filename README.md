@@ -1,6 +1,6 @@
-# ACI — Delivery Verification
+# Requora — Delivery Verification
 
-**ACI proves whether a pull request actually delivered the requirement, using the evidence already in your code, tests, and CI.**
+**Requora proves whether a pull request actually delivered the requirement, using the evidence already in your code, tests, and CI.**
 
 It posts the result where engineering leads and reviewers already look: a GitHub Check and a single PR comment. No daily login, no new dashboard required for the core workflow.
 
@@ -20,13 +20,13 @@ They still lack a reliable signal for **requirement satisfaction**.
 
 A PR can pass every technical gate while missing one or more acceptance criteria. The gap is usually discovered late—in QA, staging, or production—creating rework. For regulated or high-stakes work, reconstructing evidence after the fact is slow and incomplete.
 
-ACI closes that gap with an auditable, evidence-backed answer: **did this PR deliver the requested criteria?**
+Requora closes that gap with an auditable, evidence-backed answer: **did this PR deliver the requested criteria?**
 
 ---
 
-## What ACI Does
+## What Requora Does
 
-ACI builds a short verification chain for every relevant pull request:
+Requora builds a short verification chain for every relevant pull request:
 Requirement / Acceptance Criteria ↓ Linked Pull Request ↓ Commits + Changed Files + CI/Test Evidence ↓ Grounded Verification ↓ Deterministic Delivery Decision
 
 
@@ -40,7 +40,7 @@ Everything else (history, audit trail, configuration) is secondary.
 
 ## How It Works in GitHub (No Daily Login)
 
-ACI is installed as a **GitHub App**. Once installed on a repository (or organization), it works through webhooks and the Checks API. Developers and leads stay inside GitHub.
+Requora is installed as a **GitHub App**. Once installed on a repository (or organization), it works through webhooks and the Checks API. Developers and leads stay inside GitHub.
 
 ### Trigger
 - `pull_request` events (`opened`, `synchronize`, `reopened`, etc.).
@@ -56,7 +56,7 @@ No manual upload. No screenshot chasing.
 
 ### Output (where people already work)
 1. **Check Run** (Checks API)
-   Name example: `ACI / Delivery Verification`
+   Name example: `Requora / Delivery Verification`
    - Stays `in_progress` while verification is queued; only a fully verified delivery concludes `success`. Partial, missing, stale, and failed evidence conclude `failure`.
    - Markdown summary with criterion-level status and supporting evidence links.
    - Evidence links identify the source file and available line span (for example, `auth/login.py:10-23`) and open the matching lines on GitHub. Long criteria wrap within the table, and every evidence link is listed on its own line in the Evidence column.
@@ -70,7 +70,7 @@ No manual upload. No screenshot chasing.
 ### What users do
 - Open or update a PR as usual.
 - Read the Check and the comment.
-- Define requirements and required criteria in ACI; repository configuration files are not yet supported.
+- Define requirements and required criteria in Requora; repository configuration files are not yet supported.
 
 They do **not** need to visit a separate web app for normal review or merge decisions. A lightweight web interface exists only for audit history, bulk reports, or advanced configuration.
 
@@ -131,7 +131,7 @@ GitHub App webhook
 
 The GitHub App is the repository integration and owns the PR-facing workflow. Its installation token is minted for the installation that delivered the webhook; a personal access token is retained only for local-development read access. Check Runs and PR comments are written only with a GitHub App installation token. The web console's optional user login and GitHub-account link control console visibility only; repository authorization is granted to the App installation.
 
-GitHub webhooks are signature-checked and saved to a durable database inbox, then acknowledged immediately. Run the separate persistent worker with `python ACI_backend/manage.py run_aci_worker` from the repository root (or configure that command as a continuously running worker service sharing the backend database and environment). It processes webhook events and verification runs independently of HTTP requests; failed webhook jobs are retried and visible in Django Admin. Check/status webhooks are ingested as evidence, while ACI's own Check Run is excluded to avoid feedback loops. The delivery decision is rule-based and conservative; an LLM can evaluate only the supplied evidence and cannot choose the final decision.
+GitHub webhooks are signature-checked and saved to a durable database inbox, then acknowledged immediately. Run the separate persistent worker with `python Requora_backend/manage.py run_requora_worker` from the repository root (or configure that command as a continuously running worker service sharing the backend database and environment). It processes webhook events and verification runs independently of HTTP requests; failed webhook jobs are retried and visible in Django Admin. Check/status webhooks are ingested as evidence, while Requora's own Check Run is excluded to avoid feedback loops. The delivery decision is rule-based and conservative; an LLM can evaluate only the supplied evidence and cannot choose the final decision.
 
 The public web landing page points repositories to GitHub App installation and explains that review happens on the PR. Login and registration are only for the optional console, whose small navigation surface is for pull requests, requirements, and audit history. Analytics and detailed evidence views remain secondary/legacy routes rather than the merge-decision interface.
 
@@ -152,24 +152,24 @@ Set `ACCEPTANCE_CRITERIA_LLM_PROVIDER=openai` and `ACCEPTANCE_CRITERIA_LLM_MODEL
 
 Configure a private Redis service and set `REDIS_URL` on both the Render web service and worker. Redis provides shared API rate-limit state, GitHub App installation-token caching, and short-lived caching of immutable commit-SHA reads. Without it, local development uses process-local memory, which is not suitable for coordinating production service instances. Auth endpoints have tighter limits; API limits are global, and GitHub webhooks instead rely on HMAC signature validation, delivery-ID deduplication, and a payload size cap to tolerate GitHub event bursts.
 
-Set `DEBUG=False` and keep `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, and `CSRF_TRUSTED_ORIGINS` restricted to the deployed domains. Production enables HTTPS redirects and HSTS by default; `SECURE_HSTS_INCLUDE_SUBDOMAINS` remains off unless every subdomain is HTTPS-only. Run `python ACI_backend/manage.py check --deploy` before deployment. The pytest suite uses an isolated in-memory SQLite database; run it with `pytest ACI_backend/ACIApp/tests`. Test settings prevent test runs from using the configured production database.
+Set `DEBUG=False` and keep `ALLOWED_HOSTS`, `CORS_ALLOWED_ORIGINS`, and `CSRF_TRUSTED_ORIGINS` restricted to the deployed domains. Production enables HTTPS redirects and HSTS by default; `SECURE_HSTS_INCLUDE_SUBDOMAINS` remains off unless every subdomain is HTTPS-only. Run `python Requora_backend/manage.py check --deploy` before deployment. The pytest suite uses an isolated in-memory SQLite database; run it with `pytest Requora_backend/RequoraApp/tests`. Test settings prevent test runs from using the configured production database.
 
-The backend accepts PostgreSQL settings either as `DATABASE_URL` or as `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_HOST`, and `DATABASE_PORT`. For local commands against Render data, use the database's external connection URL from Render and keep it in the ignored `ACI_backend/.env`; do not commit or share it.
+The backend accepts PostgreSQL settings either as `DATABASE_URL` or as `DATABASE_NAME`, `DATABASE_USER`, `DATABASE_PASSWORD`, `DATABASE_HOST`, and `DATABASE_PORT`. For local commands against Render data, use the database's external connection URL from Render and keep it in the ignored `Requora_backend/.env`; do not commit or share it.
 
 ---
 
 ## Current Status
 
-Early-stage implementation. The backend has GitHub App installation-token support, a durable webhook inbox, a persistent worker command for automatic processing, AI-generated acceptance-criteria previews and approval, evidence-backed deterministic decisions, and GitHub Check/comment publishing. Hosting still requires a separate always-on worker process running `python ACI_backend/manage.py run_aci_worker`; webhook requests only enqueue work. PRs can link same-repository GitHub Issues via `#number`, Jira issues by key, or existing manual requirements via external ID or title. Repository config files, Linear, bulk reporting, and managed queue infrastructure are not included yet.
+Early-stage implementation. The backend has GitHub App installation-token support, a durable webhook inbox, a persistent worker command for automatic processing, AI-generated acceptance-criteria previews and approval, evidence-backed deterministic decisions, and GitHub Check/comment publishing. Hosting still requires a separate always-on worker process running `python Requora_backend/manage.py run_requora_worker`; webhook requests only enqueue work. PRs can link same-repository GitHub Issues via `#number`, Jira issues by key, or existing manual requirements via external ID or title. Repository config files, Linear, bulk reporting, and managed queue infrastructure are not included yet.
 
 ---
 
 ## Getting Started (Design Partners)
 
 1. Configure the GitHub App credentials, webhook secret, and acceptance-criteria LLM key in the backend, then set the frontend app slug.
-2. Install the ACI GitHub App on a repository with the permissions listed above.
+2. Install the Requora GitHub App on a repository with the permissions listed above.
 3. Optionally generate and approve criteria on a GitHub Issue using `/requora generate`; link Jira criteria with `/requora generate from jira`.
-4. Ensure the PR references a GitHub Issue (`#123`), a Jira key, or the external ID/title of a manual requirement in ACI.
+4. Ensure the PR references a GitHub Issue (`#123`), a Jira key, or the external ID/title of a manual requirement in Requora.
 5. Open or update the PR; the webhook queues the event and the persistent worker collects evidence and evaluates criteria.
 6. Review the in-progress Check, then the completed decision and single updated comment.
 

@@ -29,5 +29,5 @@ htmlcov/
 .gitconfig
 
 # Frontend
-ACI_frontend/node_modules/
-ACI_frontend/dist/
+Requora_frontend/node_modules/
+Requora_frontend/dist/
