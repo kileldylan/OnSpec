@@ -193,6 +193,24 @@ def _criterion_identity(value):
     return text.strip()
 
 
+def _numbered_criteria(text):
+    markers = list(re.finditer(r"(?<!\S)(\d+)[.)]\s+", text))
+    if not markers or markers[0].group(1) != "1":
+        return []
+    if any(
+        int(marker.group(1)) != index + 1
+        for index, marker in enumerate(markers)
+    ):
+        return []
+    criteria = []
+    for index, marker in enumerate(markers):
+        end = markers[index + 1].start() if index + 1 < len(markers) else None
+        criterion = text[marker.end():end].strip()
+        if criterion:
+            criteria.append(criterion)
+    return criteria
+
+
 def sync_requirement_criteria_from_text(*, requirement, text=None):
     """Create or refresh active criteria from a requirement description."""
     raw_text = _normalize_jira_text(
@@ -210,27 +228,27 @@ def sync_requirement_criteria_from_text(*, requirement, text=None):
             criterion.delete()
 
     lines = []
-    criteria_marker = None
     lowered = raw_text.lower()
     for marker in ("acceptance criteria", "criteria"):
         idx = lowered.find(marker)
         if idx != -1:
-            criteria_marker = marker
             remainder = raw_text[idx + len(marker):]
             remainder = remainder.lstrip(" :;\t\n-")
-            if "\n" in remainder:
+            lines = _numbered_criteria(remainder)
+            if not lines and "\n" in remainder:
                 lines = [
-                    part.strip() for part in remainder.splitlines()
-                    if part and part.strip()
+                    re.sub(r"^(?:[-*•]|\d+[.)])\s*", "", part).strip()
+                    for part in remainder.splitlines()
+                    if part.strip()
                 ]
-            else:
+            elif not lines:
                 remainder = re.sub(r"\s+", " ", remainder)
-                parts = re.split(
-                    r"(?:^|(?<=\s))\d+\.?\s+(?=[A-Z])|(?:^|(?<=\s))[-*•]\s+",
-                    remainder,
-                )
+                parts = re.split(r"(?<!\S)[-*•]\s+", remainder)
                 lines = [part.strip() for part in parts if part and part.strip()]
             break
+
+    if not lines:
+        lines = _numbered_criteria(raw_text)
 
     if not lines:
         in_criteria_block = False
@@ -268,14 +286,6 @@ def sync_requirement_criteria_from_text(*, requirement, text=None):
         else:
             lines = [raw_text[:220].strip()]
 
-    existing = {
-        _criterion_identity(item.text): item
-        for item in RequirementCriterion.objects.filter(
-            requirement=requirement,
-            is_active=True,
-        )
-    }
-
     duplicates = []
     seen = set()
     for item in RequirementCriterion.objects.filter(
@@ -293,21 +303,58 @@ def sync_requirement_criteria_from_text(*, requirement, text=None):
     for item in duplicates:
         item.delete()
 
+    existing = {
+        _criterion_identity(item.text): item
+        for item in RequirementCriterion.objects.filter(
+            requirement=requirement,
+            is_active=True,
+        )
+    }
+
+    normalized_lines = []
+    for candidate in lines:
+        candidate = re.sub(
+            r"\bExpected (?:to pass|to be partial|to fail|partial|fail)\s*:?",
+            "",
+            candidate,
+            flags=re.IGNORECASE,
+        ).strip(" \t\r\n:;-")
+        candidate = re.sub(r"^(?:[-*•]|\d+[.)])\s*", "", candidate).strip()
+        if candidate and candidate.lower() not in {"acceptance criteria", "criteria"}:
+            normalized_lines.append(candidate)
+
+    desired_keys = {_criterion_identity(candidate) for candidate in normalized_lines}
+    if len(normalized_lines) > 1:
+        RequirementCriterion.objects.filter(
+            requirement=requirement,
+            is_active=True,
+        ).exclude(
+            id__in=[
+                item.id for key, item in existing.items()
+                if key in desired_keys
+            ],
+        ).update(is_active=False)
+
     created = []
-    for text_value in lines[:12]:
-        candidate = text_value.strip()
-        if not candidate or candidate.lower() in {"acceptance criteria", "criteria"}:
-            continue
+    for order, candidate in enumerate(normalized_lines[:12]):
         normalized_candidate = _criterion_identity(candidate)
         if normalized_candidate in existing:
+            item = existing[normalized_candidate]
+            if item.order != order:
+                item.order = order
+                item.save(update_fields=["order", "updated_at"])
             continue
-        created.append(create_criterion(
+        item = create_criterion(
             requirement=requirement,
             text=candidate,
             category="behavior",
             required=True,
-        ))
-        existing[normalized_candidate] = created[-1]
+        )
+        if item.order != order:
+            item.order = order
+            item.save(update_fields=["order", "updated_at"])
+        created.append(item)
+        existing[normalized_candidate] = item
     return created
 
 

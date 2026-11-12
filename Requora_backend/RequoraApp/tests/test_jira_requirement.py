@@ -6,6 +6,7 @@ from Requora_backend.RequoraApp.models import (
     PullRequest,
     Repository,
     Requirement,
+    RequirementCriterion,
     RequirementPullRequest,
 )
 from Requora_backend.integrations.jira.service import (
@@ -172,6 +173,36 @@ def test_sync_requirement_criteria_is_idempotent():
     assert len(second_sync) == 0
     assert requirement.criteria.filter(is_active=True).count() == 3
 
+    previous_criteria = list(
+        requirement.criteria.filter(is_active=True).values_list("id", flat=True)
+    )
+    requirement.description = (
+        "Expected to pass 1. The dashboard lists up to five failed attempts for "
+        "the signed-in user's email, newest first. 2. Each attempt shows its "
+        "failed status and timestamp. 3. Successful attempts and other email "
+        "addresses are excluded. Expected to be partial 4. Each failed attempt "
+        "shows its source IP address. Expected to fail 5. Users can open a full "
+        "history of older attempts."
+    )
+    requirement.save(update_fields=["description"])
+    sync_requirement_criteria_from_text(requirement=requirement)
+
+    active_texts = list(
+        requirement.criteria.filter(is_active=True)
+        .order_by("order")
+        .values_list("text", flat=True)
+    )
+    assert active_texts == [
+        "The dashboard lists up to five failed attempts for the signed-in user's email, newest first.",
+        "Each attempt shows its failed status and timestamp.",
+        "Successful attempts and other email addresses are excluded.",
+        "Each failed attempt shows its source IP address.",
+        "Users can open a full history of older attempts.",
+    ]
+    assert not RequirementCriterion.objects.filter(
+        pk__in=previous_criteria,
+        is_active=True,
+    ).exists()
 
 @pytest.mark.django_db
 def test_ingest_jira_requirement_extracts_criteria_from_atlassian_doc_description():
