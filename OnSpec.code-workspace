@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../aci_test"
+		}
+	],
+	"settings": {}
+}
